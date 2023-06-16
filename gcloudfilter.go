@@ -8,23 +8,28 @@ import (
 )
 
 type Filter struct {
-	Properties []*Term `@@*`
+	Terms            []*Term             `  @@+`
+	LogicalOperators []*LogicalOperators `| @@*`
+}
+
+type LogicalOperators struct {
+	Operator string `@("AND" | "OR" | "NOT")`
+}
+
+type Term struct {
+	Key      string `@Ident (@"." @Ident)*`
+	Operator string `@(":" | "=" | "<=")`
+	Value    Value  `@@`
 }
 
 func (f *Filter) String() string {
 	var sb strings.Builder
 	sb.Grow(256)
-	sb.WriteString("Properties:")
-	for _, p := range f.Properties {
+	sb.WriteString("Terms:")
+	for _, p := range f.Terms {
 		sb.WriteString(fmt.Sprint(p))
 	}
 	return sb.String()
-}
-
-type Term struct {
-	Key      string `@Ident @("." Ident)?`
-	Operator string `@(":" | "=" | "<=")`
-	Value    Value  `@@`
 }
 
 func (p *Term) String() string {
@@ -38,17 +43,11 @@ type Value struct {
 	Int            int     `| @Int`
 }
 
-func Parse(filter string) (*Filter, error) {
-	parser, err := participle.Build[Filter](
-	//participle.Unquote("String"),
-	//participle.Union[Value](String{}, Number{}),
-	)
+func Parse(filterStr string) (*Filter, error) {
+	parser := participle.MustBuild[Filter]()
+	filter, err := parser.ParseString("", filterStr)
 	if err != nil {
 		return nil, err
 	}
-	ini, err := parser.ParseString("", filter)
-	if err != nil {
-		return nil, err
-	}
-	return ini, nil
+	return filter, nil
 }

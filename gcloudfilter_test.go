@@ -21,11 +21,14 @@ func TestParse(t *testing.T) {
 				filter: "labels.color=\"red\" parent.id:123 name:HOWL",
 			},
 			want: &Filter{
-				[]*Term{
+				Terms: []*Term{
 					{Key: "labels.color", Value: Value{String: "\"red\""}, Operator: "="},
 					{Key: "parent.id", Value: Value{Int: 123}, Operator: ":"},
 					{Key: "name", Value: Value{UnquotedString: "HOWL"}, Operator: ":"},
 				},
+				// LogicalOperators: []*LogicalOperators{
+				// 	{Operator: "AND"},
+				// },
 			},
 		},
 	}
