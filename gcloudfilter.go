@@ -47,7 +47,7 @@ type Term struct {
 	AttributeKey string `parser:"('.' @Ident)?)!" json:"attribute-key,omitempty"`
 	Operator     string `parser:"@(':' | '=' | '!=' | '!=' | '<' | '<=' | '>=' | '>' | '~' | '!~')!" json:"operator,omitempty"`
 	ValuesList   *List  `parser:"(@List" json:"values,omitempty"`
-	Value        *Value `parser:"| @@)!"  json:"value,omitempty"`
+	Value        *Value `parser:"| @@)!" json:"value,omitempty"`
 
 	LogicalOperator LogicalOperator `parser:"@@?" json:"logical-operator,omitempty"`
 	Term            *Term           `parser:"@@?" json:"term,omitempty"`
