@@ -76,7 +76,6 @@ type term struct {
 	Value        *value `parser:"| @@)!" json:"value,omitempty"`
 
 	LogicalOperator logicalOperator `parser:"@@?" json:"logical-operator,omitempty"`
-	Term            *term           `parser:"@@?" json:"term,omitempty"`
 }
 
 // key : simple-pattern
@@ -89,9 +88,6 @@ func (t *term) simplePattern() {
 				t.ValuesList.Values[i].simplePattern()
 			}
 		}
-	}
-	if t.Term != nil {
-		t.Term.simplePattern()
 	}
 }
 
@@ -132,6 +128,20 @@ func parse(filterStr string) (*filter, error) {
 	return filter, nil
 }
 
-func FilterProjects(projects []*resourcemanagerpb.Project, filterStr string) {
+func filterProject(project *resourcemanagerpb.Project, filter *filter) bool {
+	return true
+}
 
+func FilterProjects(projects []*resourcemanagerpb.Project, filterStr string) ([]*resourcemanagerpb.Project, error) {
+	filteredProjects := make([]*resourcemanagerpb.Project, 0, len(projects))
+	filter, err := parse(filterStr)
+	if err != nil {
+		return nil, err
+	}
+	for _, project := range projects {
+		if filterProject(project, filter) {
+			filteredProjects = append(filteredProjects, project)
+		}
+	}
+	return filteredProjects, nil
 }
