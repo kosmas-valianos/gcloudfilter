@@ -31,9 +31,9 @@ type filter struct {
 	Terms []term `parser:"@@+" json:"terms"`
 }
 
-func (f *filter) simplePattern() {
+func (f *filter) reguralExpression() {
 	for i := range f.Terms {
-		f.Terms[i].simplePattern()
+		f.Terms[i].reguralExpression()
 	}
 }
 
@@ -78,18 +78,24 @@ type term struct {
 	LogicalOperator logicalOperator `parser:"@@?" json:"logical-operator,omitempty"`
 }
 
-// key : simple-pattern
-// key :( simple-pattern … )
-func (t *term) simplePattern() {
+func (t *term) reguralExpression() {
 	if t.Operator == ":" {
+		// key : simple-pattern
+		// key :( simple-pattern … )
 		if t.Value != nil {
-			t.Value.simplePattern()
+			t.Value.reguralExpression()
 		}
 		if t.ValuesList != nil {
 			for i := range t.ValuesList.Values {
-				t.ValuesList.Values[i].simplePattern()
+				t.ValuesList.Values[i].reguralExpression()
 			}
 		}
+	} else if (t.Operator == "~" || t.Operator == "!~") && t.Value != nil {
+		// key ~ value
+		// True if key contains a match for the RE (regular expression) pattern value
+		// key !~ value
+		// True if key does not contain a match for the RE (regular expression) pattern value
+		t.Value.reguralExpression()
 	}
 }
 
@@ -99,7 +105,7 @@ type value struct {
 	Integer                      int64   `parser:"| @Int"                          json:"integer,omitempty"`
 }
 
-func (v *value) simplePattern() {
+func (v *value) reguralExpression() {
 	// :* existense. No need for any regexp transformation
 	if v.Literal != "" && v.Literal != "*" {
 		v.Literal = wildcardToRegexp(v.Literal)
@@ -112,7 +118,7 @@ var basicLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "QuotedLiteral", Pattern: `"[^"]*"|'[^']*'`},
 	{Name: "FloatingPointNumericConstant", Pattern: `[-+]?(\d+\.\d*|\.\d+)([eE][-+]?\d+)?`},
 	{Name: "Int", Pattern: `[-+]?\d+`},
-	{Name: "OperatorSymbols", Pattern: `[!~=:<>.]`},
+	{Name: "OperatorSymbols", Pattern: `[!~=:<>.]+`},
 	{Name: "Whitespace", Pattern: `\s+`},
 })
 
@@ -126,7 +132,7 @@ func parse(filterStr string) (*filter, error) {
 	if err != nil {
 		return nil, err
 	}
-	filter.simplePattern()
+	filter.reguralExpression()
 	return filter, nil
 }
 

@@ -28,6 +28,13 @@ func TestParse(t *testing.T) {
 			},
 			want: `{"terms":[{"key":"labels","attribute-key":"smell","operator":":","value":{"literal":"*"},"logical-operator":{"operator":"AND"}},{"key":"-labels","attribute-key":"volume","operator":":","value":{"literal":"*"},"logical-operator":{"operator":""}},{"key":"labels","attribute-key":"size","operator":"=","values":{"values":[{"literal":"small"},{"literal":"big"},{"floating-point-numeric-constant":25000000000}]},"logical-operator":{"operator":"OR"}},{"key":"labels","attribute-key":"cpu","operator":":","values":{"values":[{"literal":"^sm.*all$"},{"literal":"^.*big$"},{"floating-point-numeric-constant":25000000000}]},"logical-operator":{"operator":""}}]}`,
 		},
+		{
+			name: "Less common operators",
+			args: args{
+				filter: `labels.size >= 50 OR name ~ how* OR name !~ b*ol*`,
+			},
+			want: `{"terms":[{"key":"labels","attribute-key":"size","operator":"\u003e=","value":{"integer":50},"logical-operator":{"operator":"OR"}},{"key":"name","operator":"~","value":{"literal":"^how.*$"},"logical-operator":{"operator":"OR"}},{"key":"name","operator":"!~","value":{"literal":"^b.*ol.*$"},"logical-operator":{"operator":""}}]}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
