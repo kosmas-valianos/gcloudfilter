@@ -31,8 +31,12 @@ type filter struct {
 	Terms []term `parser:"@@+" json:"terms"`
 }
 
-func (f *filter) reguralExpression() {
+func (f *filter) compileExpression() {
 	for i := range f.Terms {
+		if f.Terms[i].Key[0] == '-' {
+			f.Terms[i].Negation = true
+			f.Terms[i].Key = f.Terms[i].Key[1:]
+		}
 		f.Terms[i].reguralExpression()
 	}
 }
@@ -43,10 +47,6 @@ func (f *filter) String() string {
 		return err.Error()
 	}
 	return string(json)
-}
-
-type logicalOperator struct {
-	Operator string `parser:"@('AND' | 'OR' | 'NOT')!" json:"operator"`
 }
 
 type list struct {
@@ -69,13 +69,104 @@ func (l *list) Capture(v []string) error {
 }
 
 type term struct {
-	Key          string `parser:"(@Ident"         json:"key,omitempty"`
-	AttributeKey string `parser:"('.' @Ident)?)!" json:"attribute-key,omitempty"`
-	Operator     string `parser:"@(':' | '=' | '!=' | '!=' | '<' | '<=' | '>=' | '>' | '~' | '!~')!" json:"operator,omitempty"`
-	ValuesList   *list  `parser:"(@List" json:"values,omitempty"`
-	Value        *value `parser:"| @@)!" json:"value,omitempty"`
+	Negation        bool   `parser:"(@'NOT'?"                                                    json:"negation,omitempty"`
+	Key             string `parser:"@Ident"                                                      json:"key,omitempty"`
+	AttributeKey    string `parser:"('.' @Ident)?)!"                                             json:"attribute-key,omitempty"`
+	Operator        string `parser:"@(':' | '=' | '!=' | '<' | '<=' | '>=' | '>' | '~' | '!~')!" json:"operator,omitempty"`
+	ValuesList      *list  `parser:"(@List"                                                      json:"values,omitempty"`
+	Value           *value `parser:"| @@)!"                                                      json:"value,omitempty"`
+	LogicalOperator string `parser:"@('AND' | 'OR')?"                                            json:"logical-operator,omitempty"`
+}
 
-	LogicalOperator logicalOperator `parser:"@@?" json:"logical-operator,omitempty"`
+func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
+	// Search expressions are case insensitive
+	key := strings.ToLower(t.Key)
+	switch key {
+	case "displayname", "name":
+		return t.evaluate(project.DisplayName)
+	case "parent":
+		attributeKey := strings.ToLower(t.AttributeKey)
+		switch attributeKey {
+		// e.g. parent:folders/123
+		case "":
+			return t.evaluate(project.Parent)
+		// e.g. parent.type:organization, parent.type:folder
+		case "type":
+			parentType := strings.Split(project.Parent, "/")[0]
+			return t.evaluate(parentType)
+		// e.g. parent.id:123
+		case "id":
+			parentParts := strings.Split(project.Parent, "/")
+			if len(parentParts) < 2 {
+				return false, fmt.Errorf("invalid project's parent %v", project.Parent)
+			}
+			return t.evaluate(parentParts[1])
+		default:
+			return false, fmt.Errorf("unknown attribute key %v", t.AttributeKey)
+		}
+	case "id", "projectid":
+		// e.g. id:appgate-dev
+		return t.evaluate(project.ProjectId)
+	case "state", "lifecyclestate":
+		// e.g. state:ACTIVE
+		if t.Value.Literal != "" {
+			return t.evaluate(project.State.String())
+		}
+		// e.g. state:1
+		return t.evaluate(fmt.Sprint(project.State.Number()))
+	case "labels":
+		// e.g. labels.color:red, labels.color:*, -labels.color:red
+		labelKeyFilter := t.AttributeKey
+		for labelKey, labelValue := range project.Labels {
+			if labelKey == labelKeyFilter {
+				// Existence check
+				if t.Value != nil && t.Value.Literal == "*" {
+					return true, nil
+				}
+				return t.evaluate(labelValue)
+			}
+		}
+		return false, nil
+	default:
+		return false, fmt.Errorf("unknown key %v", t.Key)
+	}
+}
+
+func (t *term) evaluate(operand string) (bool, error) {
+	values := make([]value, 0, 1)
+	if t.Value != nil {
+		values = append(values, *t.Value)
+	} else if t.ValuesList != nil {
+		values = t.ValuesList.Values
+	}
+
+	var result bool
+	var err error
+	for _, value := range values {
+		switch t.Operator {
+		case ":", "~":
+			result, err = regexp.MatchString(value.String(), operand)
+		case "=":
+			result = strings.EqualFold(value.String(), operand)
+		case "!=":
+			result = !strings.EqualFold(value.String(), operand)
+		case "<":
+			result = value.String() < operand
+		case "<=":
+			result = value.String() <= operand
+		case ">=":
+			result = value.String() >= operand
+		case ">":
+			result = value.String() > operand
+		case "!~":
+			result, err = regexp.MatchString(value.String(), operand)
+			result = !result
+		}
+		if result || err != nil {
+			break
+		}
+	}
+	return result, err
 }
 
 func (t *term) reguralExpression() {
@@ -105,6 +196,17 @@ type value struct {
 	Integer                      int64   `parser:"| @Int"                          json:"integer,omitempty"`
 }
 
+func (v value) String() string {
+	if v.Literal != "" {
+		return v.Literal
+	} else if v.FloatingPointNumericConstant != 0 {
+		return fmt.Sprint(v.FloatingPointNumericConstant)
+	} else if v.Integer != 0 {
+		return fmt.Sprint(v.Integer)
+	}
+	return ""
+}
+
 func (v *value) reguralExpression() {
 	// :* existense. No need for any regexp transformation
 	if v.Literal != "" && v.Literal != "*" {
@@ -132,12 +234,41 @@ func parse(filterStr string) (*filter, error) {
 	if err != nil {
 		return nil, err
 	}
-	filter.reguralExpression()
+	filter.compileExpression()
 	return filter, nil
 }
 
-func filterProject(project *resourcemanagerpb.Project, filter *filter) bool {
-	return true
+func filterProject(project *resourcemanagerpb.Project, filter *filter) (bool, error) {
+	result, err := filter.Terms[0].filterProject(project)
+	if err != nil {
+		return false, err
+	}
+	if filter.Terms[0].Negation {
+		result = !result
+	}
+	logicalOperator := filter.Terms[0].LogicalOperator
+
+	for _, term := range filter.Terms[1:] {
+		resultTerm, err := term.filterProject(project)
+		if err != nil {
+			return false, err
+		}
+		if term.Negation {
+			resultTerm = !resultTerm
+		}
+
+		switch logicalOperator {
+		// AND, Conjuction. Treat conjuction as an AND
+		case "AND", "":
+			result = result && resultTerm
+		// OR
+		case "OR":
+			result = result || resultTerm
+		}
+
+		logicalOperator = term.LogicalOperator
+	}
+	return result, nil
 }
 
 func FilterProjects(projects []*resourcemanagerpb.Project, filterStr string) ([]*resourcemanagerpb.Project, error) {
@@ -147,7 +278,11 @@ func FilterProjects(projects []*resourcemanagerpb.Project, filterStr string) ([]
 		return nil, err
 	}
 	for _, project := range projects {
-		if filterProject(project, filter) {
+		keepProject, err := filterProject(project, filter)
+		if err != nil {
+			return nil, err
+		}
+		if keepProject {
 			filteredProjects = append(filteredProjects, project)
 		}
 	}
