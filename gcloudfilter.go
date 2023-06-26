@@ -50,7 +50,7 @@ type logicalOperator struct {
 }
 
 type list struct {
-	Values []value
+	Values []value `json:"values,omitempty"`
 }
 
 func (l *list) Capture(v []string) error {
@@ -82,7 +82,9 @@ type term struct {
 // key :( simple-pattern … )
 func (t *term) simplePattern() {
 	if t.Operator == ":" {
-		t.Value.simplePattern()
+		if t.Value != nil {
+			t.Value.simplePattern()
+		}
 		if t.ValuesList != nil {
 			for i := range t.ValuesList.Values {
 				t.ValuesList.Values[i].simplePattern()

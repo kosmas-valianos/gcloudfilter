@@ -24,9 +24,9 @@ func TestParse(t *testing.T) {
 		{
 			name: "Key defined, Key undefined, Values' list",
 			args: args{
-				filter: `labels.smell:* AND -labels.volume:* labels.size=("small" 'big' 2.5E+10)`,
+				filter: `labels.smell:* AND -labels.volume:* labels.size=("small" 'big' 2.5E+10) OR labels.cpu:("sm*all" '*big' 2.5E+10)`,
 			},
-			want: `{"terms":[{"key":"labels","attribute-key":"smell","operator":":","value":{"literal":"*"},"logical-operator":{"operator":"AND"}},{"key":"-labels","attribute-key":"volume","operator":":","value":{"literal":"*"},"logical-operator":{"operator":""}},{"key":"labels","attribute-key":"size","operator":"=","values":{"Values":[{"literal":"small"},{"literal":"big"},{"floating-point-numeric-constant":25000000000}]},"logical-operator":{"operator":""}}]}`,
+			want: `{"terms":[{"key":"labels","attribute-key":"smell","operator":":","value":{"literal":"*"},"logical-operator":{"operator":"AND"}},{"key":"-labels","attribute-key":"volume","operator":":","value":{"literal":"*"},"logical-operator":{"operator":""}},{"key":"labels","attribute-key":"size","operator":"=","values":{"values":[{"literal":"small"},{"literal":"big"},{"floating-point-numeric-constant":25000000000}]},"logical-operator":{"operator":"OR"}},{"key":"labels","attribute-key":"cpu","operator":":","values":{"values":[{"literal":"^sm.*all$"},{"literal":"^.*big$"},{"floating-point-numeric-constant":25000000000}]},"logical-operator":{"operator":""}}]}`,
 		},
 	}
 	for _, tt := range tests {
