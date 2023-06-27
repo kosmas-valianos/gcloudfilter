@@ -245,7 +245,7 @@ func (v value) equal(p value) bool {
 
 func (v value) lessThan(p value) bool {
 	if p.Literal != nil {
-		return strings.ToLower(*v.Literal) < strings.ToLower(*p.Literal)
+		return *v.Literal < *p.Literal
 	} else if v.Number != nil {
 		return *v.Number < *p.Number
 	}
@@ -254,7 +254,7 @@ func (v value) lessThan(p value) bool {
 
 func (v value) GreaterThan(p value) bool {
 	if p.Literal != nil {
-		return strings.ToLower(*v.Literal) > strings.ToLower(*p.Literal)
+		return *v.Literal > *p.Literal
 	} else if v.Number != nil {
 		return *v.Number > *p.Number
 	}
