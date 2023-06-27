@@ -365,7 +365,7 @@ func filterProject(project *resourcemanagerpb.Project, filter *filter) (bool, er
 // Notes:
 // 1. The grammar and syntax is specified at https://cloud.google.com/sdk/gcloud/reference/topic/filters
 // Caveats:
-// 1. Parentheses to group expressions like `(labels.color="red" OR parent.id:123.4) OR name:HOWL are not supported yet
+// 1. Parentheses to group expressions like `(labels.color="red" OR parent.id:123.4) OR name:HOWL` are not supported yet
 // 2. Conjunction does not have lower precedence than OR
 func FilterProjects(projects []*resourcemanagerpb.Project, filterStr string) ([]*resourcemanagerpb.Project, error) {
 	filteredProjects := make([]*resourcemanagerpb.Project, 0, len(projects))
