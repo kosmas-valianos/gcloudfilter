@@ -22,21 +22,21 @@ func TestParse(t *testing.T) {
 			args: args{
 				filterStr: `labels.color="red" OR parent.id:2.5E+10 parent.id:-56 OR name:HOWL* AND name:'bOWL*'`,
 			},
-			want: `{"terms":[{"key":"labels","attribute-key":"color","operator":"=","value":{"literal":"red"},"logical-operator":"OR"},{"key":"parent","attribute-key":"id","operator":":","value":{"floating-point-numeric-constant":25000000000}},{"key":"parent","attribute-key":"id","operator":":","value":{"integer":-56},"logical-operator":"OR"},{"key":"name","operator":":","value":{"literal":"^HOWL.*$"},"logical-operator":"AND"},{"key":"name","operator":":","value":{"literal":"^bOWL.*$"}}]}`,
+			want: `{"terms":[{"key":"labels","attribute-key":"color","operator":"=","value":{"literal":"red"},"logical-operator":"OR"},{"key":"parent","attribute-key":"id","operator":":","value":{"number":25000000000}},{"key":"parent","attribute-key":"id","operator":":","value":{"number":-56},"logical-operator":"OR"},{"key":"name","operator":":","value":{"literal":"^HOWL.*$"},"logical-operator":"AND"},{"key":"name","operator":":","value":{"literal":"^bOWL.*$"}}]}`,
 		},
 		{
 			name: "Key defined, Key undefined, Values' list",
 			args: args{
 				filterStr: `labels.smell:* AND -labels.volume:* labels.size=("small" 'big' 2.5E+10) OR labels.cpu:("sm*all" '*big' 2.5E+10)`,
 			},
-			want: `{"terms":[{"key":"labels","attribute-key":"smell","operator":":","value":{"literal":"*"},"logical-operator":"AND"},{"negation":true,"key":"labels","attribute-key":"volume","operator":":","value":{"literal":"*"}},{"key":"labels","attribute-key":"size","operator":"=","values":{"values":[{"literal":"small"},{"literal":"big"},{"floating-point-numeric-constant":25000000000}]},"logical-operator":"OR"},{"key":"labels","attribute-key":"cpu","operator":":","values":{"values":[{"literal":"^sm.*all$"},{"literal":"^.*big$"},{"floating-point-numeric-constant":25000000000}]}}]}`,
+			want: `{"terms":[{"key":"labels","attribute-key":"smell","operator":":","value":{"literal":"*"},"logical-operator":"AND"},{"negation":true,"key":"labels","attribute-key":"volume","operator":":","value":{"literal":"*"}},{"key":"labels","attribute-key":"size","operator":"=","values":{"values":[{"literal":"small"},{"literal":"big"},{"number":25000000000}]},"logical-operator":"OR"},{"key":"labels","attribute-key":"cpu","operator":":","values":{"values":[{"literal":"^sm.*all$"},{"literal":"^.*big$"},{"number":25000000000}]}}]}`,
 		},
 		{
 			name: "Less common operators",
 			args: args{
 				filterStr: `labels.size >= 50 OR name ~ how* OR name !~ b*ol*`,
 			},
-			want: `{"terms":[{"key":"labels","attribute-key":"size","operator":"\u003e=","value":{"integer":50},"logical-operator":"OR"},{"key":"name","operator":"~","value":{"literal":"^how.*$"},"logical-operator":"OR"},{"key":"name","operator":"!~","value":{"literal":"^b.*ol.*$"}}]}`,
+			want: `{"terms":[{"key":"labels","attribute-key":"size","operator":"\u003e=","value":{"number":50},"logical-operator":"OR"},{"key":"name","operator":"~","value":{"literal":"how*"},"logical-operator":"OR"},{"key":"name","operator":"!~","value":{"literal":"b*ol*"}}]}`,
 		},
 		{
 			name: "Negations",
@@ -84,7 +84,7 @@ func TestFilterProjects(t *testing.T) {
 			Labels: map[string]string{
 				"volume": "medium",
 				"cpu":    "Intel Skylake",
-				"size":   "2.5E+10",
+				"size":   "-2.5E+10",
 			},
 		},
 	}
@@ -101,7 +101,7 @@ func TestFilterProjects(t *testing.T) {
 		{
 			name: "Complex 1",
 			args: args{
-				filterStr: `labels.volume:medium OR parent.type=organizations parent.id<=123 labels.color:red name:Appgate* AND NOT labels.smell:* labels.volume:*`,
+				filterStr: `labels.volume:medium OR parent.type=organizations parent.id<=123 labels.color:red name:appgate* AND NOT labels.smell:* labels.volume:*`,
 			},
 			want: []*resourcemanagerpb.Project{
 				projects[0],
@@ -110,7 +110,7 @@ func TestFilterProjects(t *testing.T) {
 		{
 			name: "Complex 2",
 			args: args{
-				filterStr: `parent:folders* labels.volume:("small" 'med*') AND labels.size=(2.5E+10 "34")`,
+				filterStr: `parent:folders* labels.volume:("small",'med*') name ~ "\w+(\s+\w+)*"  AND labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo)`,
 			},
 			want: []*resourcemanagerpb.Project{
 				projects[1],
@@ -126,6 +126,9 @@ func TestFilterProjects(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("FilterProjects() = %v, want %v", got, tt.want)
+			}
+			for _, project := range got {
+				t.Log(project.ProjectId)
 			}
 		})
 	}

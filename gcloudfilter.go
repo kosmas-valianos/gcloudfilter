@@ -37,7 +37,8 @@ func (f *filter) compileExpression() {
 			f.Terms[i].Negation = true
 			f.Terms[i].Key = f.Terms[i].Key[1:]
 		}
-		f.Terms[i].reguralExpression()
+		f.Terms[i].unQuote()
+		f.Terms[i].simplePattern()
 	}
 }
 
@@ -54,15 +55,32 @@ type list struct {
 }
 
 func (l *list) Capture(v []string) error {
-	for _, token := range strings.Split(v[0][1:len(v[0])-1], " ") {
+	// key :( simple-pattern … )
+	// True if key matches any simple-pattern in the (space, tab, newline, comma) separated list
+	// key =( value … )
+	// True if key is equal to any value in the (space, tab, newline, comma) separated list
+	seps := []string{"\t", "\n", " ", ","}
+	var tokens []string
+	for _, sep := range seps {
+		// Ignore separator in case it exists inside single or double quote strings
+		// e.g. `"Intel Skylake" 'foo' 54` => 3 tokens
+		r := regexp.MustCompile(`(?:"[^"]*"|'[^']*'|[^` + sep + `])+`)
+		tokens = r.FindAllString(v[0][1:len(v[0])-1], -1)
+		if len(tokens) > 1 {
+			break
+		}
+	}
+	for _, token := range tokens {
 		if (token[0] == '"' && token[len(token)-1] == '"') || (token[0] == '\'' && token[len(token)-1] == '\'') {
-			l.Values = append(l.Values, value{Literal: token[1 : len(token)-1]})
-		} else if integer, err := strconv.ParseInt(token, 10, 64); err == nil {
-			l.Values = append(l.Values, value{Integer: integer})
-		} else if float, err := strconv.ParseFloat(token, 64); err == nil {
-			l.Values = append(l.Values, value{FloatingPointNumericConstant: float})
+			// Single or double quoted literal
+			literal := token[1 : len(token)-1]
+			l.Values = append(l.Values, value{Literal: &literal})
+		} else if number, err := strconv.ParseFloat(token, 64); err == nil {
+			// Number
+			l.Values = append(l.Values, value{Number: &number})
 		} else {
-			return fmt.Errorf("token %v is invalid", token)
+			// Unquoted literal
+			l.Values = append(l.Values, value{Literal: &token})
 		}
 	}
 	return nil
@@ -109,7 +127,7 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 		return t.evaluate(project.ProjectId)
 	case "state", "lifecyclestate":
 		// e.g. state:ACTIVE
-		if t.Value.Literal != "" {
+		if t.Value.Literal != nil {
 			return t.evaluate(project.State.String())
 		}
 		// e.g. state:1
@@ -120,7 +138,7 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 		for labelKey, labelValue := range project.Labels {
 			if labelKey == labelKeyFilter {
 				// Existence check
-				if t.Value != nil && t.Value.Literal == "*" {
+				if t.Value != nil && t.Value.Literal != nil && *t.Value.Literal == "*" {
 					return true, nil
 				}
 				return t.evaluate(labelValue)
@@ -132,7 +150,7 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 	}
 }
 
-func (t *term) evaluate(operand string) (bool, error) {
+func (t *term) evaluate(projectValueStr string) (bool, error) {
 	values := make([]value, 0, 1)
 	if t.Value != nil {
 		values = append(values, *t.Value)
@@ -140,28 +158,17 @@ func (t *term) evaluate(operand string) (bool, error) {
 		values = t.ValuesList.Values
 	}
 
+	var projectValue value
+	if number, err := strconv.ParseFloat(projectValueStr, 64); err == nil {
+		projectValue.Number = &number
+	} else {
+		projectValue.Literal = &projectValueStr
+	}
+
 	var result bool
 	var err error
 	for _, value := range values {
-		switch t.Operator {
-		case ":", "~":
-			result, err = regexp.MatchString(value.String(), operand)
-		case "=":
-			result = strings.EqualFold(value.String(), operand)
-		case "!=":
-			result = !strings.EqualFold(value.String(), operand)
-		case "<":
-			result = value.String() < operand
-		case "<=":
-			result = value.String() <= operand
-		case ">=":
-			result = value.String() >= operand
-		case ">":
-			result = value.String() > operand
-		case "!~":
-			result, err = regexp.MatchString(value.String(), operand)
-			result = !result
-		}
+		result, err = value.compare(t.Operator, projectValue)
 		if result || err != nil {
 			break
 		}
@@ -169,7 +176,17 @@ func (t *term) evaluate(operand string) (bool, error) {
 	return result, err
 }
 
-func (t *term) reguralExpression() {
+func (t term) unQuote() {
+	// Items in t.ValuesList are already unquoted from Capture
+	if t.Value != nil && t.Value.Literal != nil {
+		literal := *t.Value.Literal
+		if (literal[0] == '"' && literal[len(literal)-1] == '"') || (literal[0] == '\'' && literal[len(literal)-1] == '\'') {
+			*t.Value.Literal = literal[1 : len(literal)-1]
+		}
+	}
+}
+
+func (t term) simplePattern() {
 	if t.Operator == ":" {
 		// key : simple-pattern
 		// key :( simple-pattern … )
@@ -181,36 +198,94 @@ func (t *term) reguralExpression() {
 				t.ValuesList.Values[i].reguralExpression()
 			}
 		}
-	} else if (t.Operator == "~" || t.Operator == "!~") && t.Value != nil {
-		// key ~ value
-		// True if key contains a match for the RE (regular expression) pattern value
-		// key !~ value
-		// True if key does not contain a match for the RE (regular expression) pattern value
-		t.Value.reguralExpression()
 	}
 }
 
 type value struct {
-	Literal                      string  `parser:"  @Ident | @QuotedLiteral"       json:"literal,omitempty"`
-	FloatingPointNumericConstant float64 `parser:"| @FloatingPointNumericConstant" json:"floating-point-numeric-constant,omitempty"`
-	Integer                      int64   `parser:"| @Int"                          json:"integer,omitempty"`
+	Literal *string  `parser:"  @Ident | @QuotedLiteral"              json:"literal,omitempty"`
+	Number  *float64 `parser:"| @FloatingPointNumericConstant | @Int" json:"number,omitempty"`
 }
 
 func (v value) String() string {
-	if v.Literal != "" {
-		return v.Literal
-	} else if v.FloatingPointNumericConstant != 0 {
-		return fmt.Sprint(v.FloatingPointNumericConstant)
-	} else if v.Integer != 0 {
-		return fmt.Sprint(v.Integer)
+	var sb strings.Builder
+	sb.WriteString("Value:\n")
+	if v.Literal != nil {
+		sb.WriteString(fmt.Sprintf("\n\tLiteral: %v", *v.Literal))
 	}
-	return ""
+	if v.Number != nil {
+		sb.WriteString(fmt.Sprintf("\n\tFloating point numeric constant: %v\n", *v.Number))
+	}
+	return sb.String()
+}
+
+func (v value) equal(p value) bool {
+	if p.Literal != nil && v.Literal != nil {
+		return strings.EqualFold(*v.Literal, *p.Literal)
+	} else if p.Number != nil && v.Number != nil {
+		return *v.Number == *p.Number
+	}
+	return false
+}
+
+func (v value) lessThan(p value) bool {
+	if p.Literal != nil {
+		return strings.ToLower(*v.Literal) < strings.ToLower(*p.Literal)
+	} else if v.Number != nil {
+		return *v.Number < *p.Number
+	}
+	return false
+}
+
+func (v value) GreaterThan(p value) bool {
+	if p.Literal != nil {
+		return strings.ToLower(*v.Literal) > strings.ToLower(*p.Literal)
+	} else if v.Number != nil {
+		return *v.Number > *p.Number
+	}
+	return false
+}
+
+func (v value) compare(operator string, p value) (bool, error) {
+	switch operator {
+	case ":":
+		// Case insensitive operator
+		return regexp.MatchString("(?i)"+*v.Literal, *p.Literal)
+	case "=":
+		return v.equal(p), nil
+	case "!=":
+		return !v.equal(p), nil
+	case "<":
+		return v.lessThan(p), nil
+	case "<=":
+		result := v.equal(p)
+		if !result {
+			return v.lessThan(p), nil
+		}
+		return result, nil
+	case ">=":
+		result := v.equal(p)
+		if !result {
+			return v.GreaterThan(p), nil
+		}
+		return result, nil
+	case ">":
+		return v.GreaterThan(p), nil
+	case "~":
+		return regexp.MatchString(*v.Literal, *p.Literal)
+	case "!~":
+		result, err := regexp.MatchString(*v.Literal, *p.Literal)
+		if err != nil {
+			return false, nil
+		}
+		return !result, nil
+	}
+	return false, fmt.Errorf("invalid operator %v", operator)
 }
 
 func (v *value) reguralExpression() {
 	// :* existense. No need for any regexp transformation
-	if v.Literal != "" && v.Literal != "*" {
-		v.Literal = wildcardToRegexp(v.Literal)
+	if v.Literal != nil && *v.Literal != "*" {
+		*v.Literal = wildcardToRegexp(*v.Literal)
 	}
 }
 
@@ -228,7 +303,6 @@ func parse(filterStr string) (*filter, error) {
 	parser := participle.MustBuild[filter](
 		participle.Lexer(basicLexer),
 		participle.Elide("Whitespace"),
-		participle.Unquote("QuotedLiteral"),
 	)
 	filter, err := parser.ParseString("", filterStr)
 	if err != nil {
