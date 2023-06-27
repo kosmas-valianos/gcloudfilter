@@ -36,7 +36,7 @@ func TestParse(t *testing.T) {
 			args: args{
 				filterStr: `labels.size >= 50 OR name ~ how* OR name !~ b*ol*`,
 			},
-			want: `{"terms":[{"key":"labels","attribute-key":"size","operator":"\u003e=","value":{"number":50},"logical-operator":"OR"},{"key":"name","operator":"~","value":{"literal":"^how.*$"},"logical-operator":"OR"},{"key":"name","operator":"!~","value":{"literal":"^b.*ol.*$"}}]}`,
+			want: `{"terms":[{"key":"labels","attribute-key":"size","operator":"\u003e=","value":{"number":50},"logical-operator":"OR"},{"key":"name","operator":"~","value":{"literal":"how*"},"logical-operator":"OR"},{"key":"name","operator":"!~","value":{"literal":"b*ol*"}}]}`,
 		},
 		{
 			name: "Negations",
@@ -110,7 +110,7 @@ func TestFilterProjects(t *testing.T) {
 		{
 			name: "Complex 2",
 			args: args{
-				filterStr: `parent:folders* labels.volume:("small",'med*') AND labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo)`,
+				filterStr: `parent:folders* labels.volume:("small",'med*') name ~ "\w+(\s+\w+)*"  AND labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo)`,
 			},
 			want: []*resourcemanagerpb.Project{
 				projects[1],

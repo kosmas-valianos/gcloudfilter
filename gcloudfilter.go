@@ -37,7 +37,8 @@ func (f *filter) compileExpression() {
 			f.Terms[i].Negation = true
 			f.Terms[i].Key = f.Terms[i].Key[1:]
 		}
-		f.Terms[i].reguralExpression()
+		f.Terms[i].unQuote()
+		f.Terms[i].simplePattern()
 	}
 }
 
@@ -168,7 +169,6 @@ func (t *term) evaluate(projectValueStr string) (bool, error) {
 	var err error
 	for _, value := range values {
 		result, err = value.compare(t.Operator, projectValue)
-
 		if result || err != nil {
 			break
 		}
@@ -176,7 +176,17 @@ func (t *term) evaluate(projectValueStr string) (bool, error) {
 	return result, err
 }
 
-func (t *term) reguralExpression() {
+func (t term) unQuote() {
+	// Items in t.ValuesList are already unquoted from Capture
+	if t.Value != nil && t.Value.Literal != nil {
+		literal := *t.Value.Literal
+		if (literal[0] == '"' && literal[len(literal)-1] == '"') || (literal[0] == '\'' && literal[len(literal)-1] == '\'') {
+			*t.Value.Literal = literal[1 : len(literal)-1]
+		}
+	}
+}
+
+func (t term) simplePattern() {
 	if t.Operator == ":" {
 		// key : simple-pattern
 		// key :( simple-pattern … )
@@ -188,12 +198,6 @@ func (t *term) reguralExpression() {
 				t.ValuesList.Values[i].reguralExpression()
 			}
 		}
-	} else if (t.Operator == "~" || t.Operator == "!~") && t.Value != nil {
-		// key ~ value
-		// True if key contains a match for the RE (regular expression) pattern value
-		// key !~ value
-		// True if key does not contain a match for the RE (regular expression) pattern value
-		t.Value.reguralExpression()
 	}
 }
 
@@ -299,7 +303,6 @@ func parse(filterStr string) (*filter, error) {
 	parser := participle.MustBuild[filter](
 		participle.Lexer(basicLexer),
 		participle.Elide("Whitespace"),
-		participle.Unquote("QuotedLiteral"),
 	)
 	filter, err := parser.ParseString("", filterStr)
 	if err != nil {
