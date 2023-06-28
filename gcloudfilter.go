@@ -18,10 +18,12 @@ package gcloudfilter
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"github.com/alecthomas/participle/v2"
@@ -116,8 +118,6 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 	// Search expressions are case insensitive
 	key := strings.ToLower(t.Key)
 	switch key {
-	case "displayname", "name":
-		return t.evaluate(project.DisplayName)
 	case "parent":
 		attributeKey := strings.ToLower(t.AttributeKey)
 		switch attributeKey {
@@ -148,6 +148,16 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 		}
 		// e.g. state:1
 		return t.evaluate(fmt.Sprint(project.State.Number()))
+	case "displayname", "name":
+		return t.evaluate(project.DisplayName)
+	case "createtime":
+		return t.evaluateTimestamp(project.CreateTime.AsTime().Format(time.RFC3339))
+	case "updatetime":
+		return t.evaluateTimestamp(project.UpdateTime.AsTime().Format(time.RFC3339))
+	case "deletetime":
+		return t.evaluateTimestamp(project.DeleteTime.AsTime().Format(time.RFC3339))
+	case "etag":
+		return t.evaluate(project.Etag)
 	case "labels":
 		// e.g. labels.color:red, labels.color:*, -labels.color:red
 		labelKeyFilter := t.AttributeKey
@@ -164,6 +174,34 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 	default:
 		return false, fmt.Errorf("unknown key %v", t.Key)
 	}
+}
+
+func (t *term) evaluateTimestamp(projectTimeStr string) (bool, error) {
+	values := make([]value, 0, 1)
+	if t.Value != nil {
+		values = append(values, *t.Value)
+	} else if t.ValuesList != nil {
+		values = t.ValuesList.Values
+	}
+
+	var result bool
+	var err error
+	for _, v := range values {
+		if v.Literal == nil {
+			return false, errors.New("timestamps can only be compared with RFC3339 time literals")
+		}
+		// Make sure the value is given in RFC3339 format
+		_, err := time.Parse(time.RFC3339, *v.Literal)
+		if err != nil {
+			return false, err
+		}
+		fmt.Println(*v.Literal, projectTimeStr)
+		result, err = v.compare(t.Operator, value{Literal: &projectTimeStr})
+		if result || err != nil {
+			break
+		}
+	}
+	return result, err
 }
 
 func (t *term) evaluate(projectValueStr string) (bool, error) {
