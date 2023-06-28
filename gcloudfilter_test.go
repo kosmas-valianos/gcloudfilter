@@ -144,7 +144,7 @@ func TestFilterProjects(t *testing.T) {
 		{
 			name: "Timestamp, State",
 			args: args{
-				filterStr: "createTime <= " + fmt.Sprintf("\"%v\"", time.Now().UTC().Format(time.RFC3339)) + " AND state=1",
+				filterStr: "createTime <= " + fmt.Sprintf("\"%v\"", time.Now().UTC().Format(time.RFC3339)) + " AND state>=1 AND state=ACTIVE",
 			},
 			want: []*resourcemanagerpb.Project{
 				projects[0],

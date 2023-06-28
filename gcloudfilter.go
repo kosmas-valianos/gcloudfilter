@@ -195,7 +195,6 @@ func (t *term) evaluateTimestamp(projectTimeStr string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		fmt.Println(*v.Literal, projectTimeStr)
 		result, err = v.compare(t.Operator, value{Literal: &projectTimeStr})
 		if result || err != nil {
 			break
@@ -273,37 +272,50 @@ func (v value) String() string {
 }
 
 func (v value) equal(p value) bool {
-	if p.Literal != nil && v.Literal != nil {
+	if v.Literal != nil && p.Literal != nil {
 		return strings.EqualFold(*v.Literal, *p.Literal)
-	} else if p.Number != nil && v.Number != nil {
+	} else if v.Number != nil && p.Number != nil {
 		return *v.Number == *p.Number
 	}
 	return false
 }
 
 func (v value) lessThan(p value) bool {
-	if p.Literal != nil {
+	if v.Literal != nil && p.Literal != nil {
 		return *v.Literal < *p.Literal
-	} else if v.Number != nil {
+	} else if v.Number != nil && p.Number != nil {
 		return *v.Number < *p.Number
 	}
 	return false
 }
 
-func (v value) GreaterThan(p value) bool {
-	if p.Literal != nil {
+func (v value) greaterThan(p value) bool {
+	if v.Literal != nil && p.Literal != nil {
 		return *v.Literal > *p.Literal
-	} else if v.Number != nil {
+	} else if v.Number != nil && p.Number != nil {
 		return *v.Number > *p.Number
 	}
 	return false
+}
+
+func (v value) matchRegExp(p value, simplePattern bool) (bool, error) {
+	var pattern string
+	if simplePattern {
+		pattern = "(?i)"
+	}
+	if v.Literal != nil && p.Literal != nil {
+		return regexp.MatchString(pattern+*v.Literal, *p.Literal)
+	} else if v.Number != nil && p.Number != nil {
+		return regexp.MatchString(pattern+fmt.Sprint(*v.Number), fmt.Sprint(*p.Number))
+	}
+	return false, nil
 }
 
 func (v value) compare(operator string, p value) (bool, error) {
 	switch operator {
 	case ":":
 		// Case insensitive operator
-		return regexp.MatchString("(?i)"+*v.Literal, *p.Literal)
+		return v.matchRegExp(p, true)
 	case "=":
 		return v.equal(p), nil
 	case "!=":
@@ -319,15 +331,15 @@ func (v value) compare(operator string, p value) (bool, error) {
 	case ">=":
 		result := v.equal(p)
 		if !result {
-			return v.GreaterThan(p), nil
+			return v.greaterThan(p), nil
 		}
 		return result, nil
 	case ">":
-		return v.GreaterThan(p), nil
+		return v.greaterThan(p), nil
 	case "~":
-		return regexp.MatchString(*v.Literal, *p.Literal)
+		return v.matchRegExp(p, false)
 	case "!~":
-		result, err := regexp.MatchString(*v.Literal, *p.Literal)
+		result, err := v.matchRegExp(p, false)
 		if err != nil {
 			return false, nil
 		}
