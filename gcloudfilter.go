@@ -207,11 +207,11 @@ func (t term) simplePattern() {
 		// key : simple-pattern
 		// key :( simple-pattern … )
 		if t.Value != nil {
-			t.Value.reguralExpression()
+			t.Value.simplePattern()
 		}
 		if t.ValuesList != nil {
 			for i := range t.ValuesList.Values {
-				t.ValuesList.Values[i].reguralExpression()
+				t.ValuesList.Values[i].simplePattern()
 			}
 		}
 	}
@@ -298,7 +298,7 @@ func (v value) compare(operator string, p value) (bool, error) {
 	return false, fmt.Errorf("invalid operator %v", operator)
 }
 
-func (v *value) reguralExpression() {
+func (v *value) simplePattern() {
 	// :* existense. No need for any regexp transformation
 	if v.Literal != nil && *v.Literal != "*" {
 		*v.Literal = wildcardToRegexp(*v.Literal)
