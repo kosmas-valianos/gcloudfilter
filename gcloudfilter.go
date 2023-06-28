@@ -18,10 +18,12 @@ package gcloudfilter
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"github.com/alecthomas/participle/v2"
@@ -116,8 +118,6 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 	// Search expressions are case insensitive
 	key := strings.ToLower(t.Key)
 	switch key {
-	case "displayname", "name":
-		return t.evaluate(project.DisplayName)
 	case "parent":
 		attributeKey := strings.ToLower(t.AttributeKey)
 		switch attributeKey {
@@ -148,6 +148,16 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 		}
 		// e.g. state:1
 		return t.evaluate(fmt.Sprint(project.State.Number()))
+	case "displayname", "name":
+		return t.evaluate(project.DisplayName)
+	case "createtime":
+		return t.evaluateTimestamp(project.CreateTime.AsTime().Format(time.RFC3339))
+	case "updatetime":
+		return t.evaluateTimestamp(project.UpdateTime.AsTime().Format(time.RFC3339))
+	case "deletetime":
+		return t.evaluateTimestamp(project.DeleteTime.AsTime().Format(time.RFC3339))
+	case "etag":
+		return t.evaluate(project.Etag)
 	case "labels":
 		// e.g. labels.color:red, labels.color:*, -labels.color:red
 		labelKeyFilter := t.AttributeKey
@@ -164,6 +174,33 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 	default:
 		return false, fmt.Errorf("unknown key %v", t.Key)
 	}
+}
+
+func (t *term) evaluateTimestamp(projectTimeStr string) (bool, error) {
+	values := make([]value, 0, 1)
+	if t.Value != nil {
+		values = append(values, *t.Value)
+	} else if t.ValuesList != nil {
+		values = t.ValuesList.Values
+	}
+
+	var result bool
+	var err error
+	for _, v := range values {
+		if v.Literal == nil {
+			return false, errors.New("timestamps can only be compared with RFC3339 time literals")
+		}
+		// Make sure the value is given in RFC3339 format
+		_, err := time.Parse(time.RFC3339, *v.Literal)
+		if err != nil {
+			return false, err
+		}
+		result, err = v.compare(t.Operator, value{Literal: &projectTimeStr})
+		if result || err != nil {
+			break
+		}
+	}
+	return result, err
 }
 
 func (t *term) evaluate(projectValueStr string) (bool, error) {
@@ -207,11 +244,11 @@ func (t term) simplePattern() {
 		// key : simple-pattern
 		// key :( simple-pattern … )
 		if t.Value != nil {
-			t.Value.reguralExpression()
+			t.Value.simplePattern()
 		}
 		if t.ValuesList != nil {
 			for i := range t.ValuesList.Values {
-				t.ValuesList.Values[i].reguralExpression()
+				t.ValuesList.Values[i].simplePattern()
 			}
 		}
 	}
@@ -235,37 +272,50 @@ func (v value) String() string {
 }
 
 func (v value) equal(p value) bool {
-	if p.Literal != nil && v.Literal != nil {
+	if v.Literal != nil && p.Literal != nil {
 		return strings.EqualFold(*v.Literal, *p.Literal)
-	} else if p.Number != nil && v.Number != nil {
+	} else if v.Number != nil && p.Number != nil {
 		return *v.Number == *p.Number
 	}
 	return false
 }
 
 func (v value) lessThan(p value) bool {
-	if p.Literal != nil {
+	if v.Literal != nil && p.Literal != nil {
 		return *v.Literal < *p.Literal
-	} else if v.Number != nil {
+	} else if v.Number != nil && p.Number != nil {
 		return *v.Number < *p.Number
 	}
 	return false
 }
 
-func (v value) GreaterThan(p value) bool {
-	if p.Literal != nil {
+func (v value) greaterThan(p value) bool {
+	if v.Literal != nil && p.Literal != nil {
 		return *v.Literal > *p.Literal
-	} else if v.Number != nil {
+	} else if v.Number != nil && p.Number != nil {
 		return *v.Number > *p.Number
 	}
 	return false
+}
+
+func (v value) matchRegExp(p value, simplePattern bool) (bool, error) {
+	var pattern string
+	if simplePattern {
+		pattern = "(?i)"
+	}
+	if v.Literal != nil && p.Literal != nil {
+		return regexp.MatchString(pattern+*v.Literal, *p.Literal)
+	} else if v.Number != nil && p.Number != nil {
+		return regexp.MatchString(pattern+fmt.Sprint(*v.Number), fmt.Sprint(*p.Number))
+	}
+	return false, nil
 }
 
 func (v value) compare(operator string, p value) (bool, error) {
 	switch operator {
 	case ":":
 		// Case insensitive operator
-		return regexp.MatchString("(?i)"+*v.Literal, *p.Literal)
+		return v.matchRegExp(p, true)
 	case "=":
 		return v.equal(p), nil
 	case "!=":
@@ -281,15 +331,15 @@ func (v value) compare(operator string, p value) (bool, error) {
 	case ">=":
 		result := v.equal(p)
 		if !result {
-			return v.GreaterThan(p), nil
+			return v.greaterThan(p), nil
 		}
 		return result, nil
 	case ">":
-		return v.GreaterThan(p), nil
+		return v.greaterThan(p), nil
 	case "~":
-		return regexp.MatchString(*v.Literal, *p.Literal)
+		return v.matchRegExp(p, false)
 	case "!~":
-		result, err := regexp.MatchString(*v.Literal, *p.Literal)
+		result, err := v.matchRegExp(p, false)
 		if err != nil {
 			return false, nil
 		}
@@ -298,7 +348,7 @@ func (v value) compare(operator string, p value) (bool, error) {
 	return false, fmt.Errorf("invalid operator %v", operator)
 }
 
-func (v *value) reguralExpression() {
+func (v *value) simplePattern() {
 	// :* existense. No need for any regexp transformation
 	if v.Literal != nil && *v.Literal != "*" {
 		*v.Literal = wildcardToRegexp(*v.Literal)

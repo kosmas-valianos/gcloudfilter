@@ -17,10 +17,13 @@
 package gcloudfilter
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestParse(t *testing.T) {
@@ -83,8 +86,11 @@ func TestFilterProjects(t *testing.T) {
 		{
 			Name:        "projects/82699087620",
 			Parent:      "organizations/123",
-			DisplayName: "Appgate Dev",
 			ProjectId:   "appgate-dev",
+			State:       1,
+			DisplayName: "Appgate Dev",
+			CreateTime:  timestamppb.Now(),
+			Etag:        `W/"50f1fa462f4ec213"`,
 			Labels: map[string]string{
 				"color":  "red",
 				"volume": "big",
@@ -95,8 +101,11 @@ func TestFilterProjects(t *testing.T) {
 		{
 			Name:        "projects/76499083636",
 			Parent:      "folders/876",
-			DisplayName: "Devops Test",
 			ProjectId:   "devops-test",
+			State:       1,
+			DisplayName: "Devops Test",
+			CreateTime:  timestamppb.Now(),
+			Etag:        `W/"ef2024afcf714f51"`,
 			Labels: map[string]string{
 				"volume": "medium",
 				"cpu":    "Intel Skylake",
@@ -129,6 +138,16 @@ func TestFilterProjects(t *testing.T) {
 				filterStr: `parent:folders* labels.volume:("small",'med*') name ~ "\w+(\s+\w+)*"  AND labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo)`,
 			},
 			want: []*resourcemanagerpb.Project{
+				projects[1],
+			},
+		},
+		{
+			name: "Timestamp, State",
+			args: args{
+				filterStr: "createTime <= " + fmt.Sprintf("\"%v\"", time.Now().UTC().Format(time.RFC3339)) + " AND state>=1 AND state=ACTIVE",
+			},
+			want: []*resourcemanagerpb.Project{
+				projects[0],
 				projects[1],
 			},
 		},
