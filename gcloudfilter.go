@@ -30,6 +30,19 @@ import (
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
+var parser = participle.MustBuild[filter](
+	participle.Lexer(lexer.MustSimple([]lexer.SimpleRule{
+		{Name: "Ident", Pattern: `-?[a-zA-Z\*]+|\*`},
+		{Name: "List", Pattern: `\([^\(^\)]*\)`},
+		{Name: "QuotedLiteral", Pattern: `"[^"]*"|'[^']*'`},
+		{Name: "FloatingPointNumericConstant", Pattern: `[-+]?(\d+\.\d*|\.\d+)([eE][-+]?\d+)?`},
+		{Name: "Int", Pattern: `[-+]?\d+`},
+		{Name: "OperatorSymbols", Pattern: `[!~=:<>.]+`},
+		{Name: "Whitespace", Pattern: `\s+`},
+	})),
+	participle.Elide("Whitespace"),
+)
+
 func wildcardToRegexp(pattern string) string {
 	components := strings.Split(pattern, "*")
 	if len(components) == 1 {
@@ -49,7 +62,48 @@ type filter struct {
 	Terms []term `parser:"@@+" json:"terms"`
 }
 
-func (f *filter) compileExpression() {
+func (f filter) String() string {
+	json, err := json.Marshal(f)
+	if err != nil {
+		return err.Error()
+	}
+	return string(json)
+}
+
+func (f filter) filterProject(project *resourcemanagerpb.Project) (bool, error) {
+	result, err := f.Terms[0].filterProject(project)
+	if err != nil {
+		return false, err
+	}
+	if f.Terms[0].Negation {
+		result = !result
+	}
+	logicalOperator := f.Terms[0].LogicalOperator
+
+	for _, term := range f.Terms[1:] {
+		resultTerm, err := term.filterProject(project)
+		if err != nil {
+			return false, err
+		}
+		if term.Negation {
+			resultTerm = !resultTerm
+		}
+
+		switch logicalOperator {
+		// AND, Conjuction. Treat conjuction as an AND
+		case "AND", "":
+			result = result && resultTerm
+		// OR
+		case "OR":
+			result = result || resultTerm
+		}
+
+		logicalOperator = term.LogicalOperator
+	}
+	return result, nil
+}
+
+func (f filter) compileExpression() {
 	for i := range f.Terms {
 		if f.Terms[i].Key[0] == '-' {
 			f.Terms[i].Negation = true
@@ -58,14 +112,6 @@ func (f *filter) compileExpression() {
 		f.Terms[i].unQuote()
 		f.Terms[i].simplePattern()
 	}
-}
-
-func (f *filter) String() string {
-	json, err := json.Marshal(f)
-	if err != nil {
-		return err.Error()
-	}
-	return string(json)
 }
 
 type list struct {
@@ -114,7 +160,7 @@ type term struct {
 	LogicalOperator string `parser:"@('AND' | 'OR')?"                                            json:"logical-operator,omitempty"`
 }
 
-func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
+func (t term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 	// Search expressions are case insensitive
 	key := strings.ToLower(t.Key)
 	switch key {
@@ -176,7 +222,7 @@ func (t *term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 	}
 }
 
-func (t *term) evaluateTimestamp(projectTimeStr string) (bool, error) {
+func (t term) evaluateTimestamp(projectTimeStr string) (bool, error) {
 	values := make([]value, 0, 1)
 	if t.Value != nil {
 		values = append(values, *t.Value)
@@ -203,7 +249,7 @@ func (t *term) evaluateTimestamp(projectTimeStr string) (bool, error) {
 	return result, err
 }
 
-func (t *term) evaluate(projectValueStr string) (bool, error) {
+func (t term) evaluate(projectValueStr string) (bool, error) {
 	values := make([]value, 0, 1)
 	if t.Value != nil {
 		values = append(values, *t.Value)
@@ -348,67 +394,20 @@ func (v value) compare(operator string, p value) (bool, error) {
 	return false, fmt.Errorf("invalid operator %v", operator)
 }
 
-func (v *value) simplePattern() {
+func (v value) simplePattern() {
 	// :* existense. No need for any regexp transformation
 	if v.Literal != nil && *v.Literal != "*" {
 		*v.Literal = wildcardToRegexp(*v.Literal)
 	}
 }
 
-var basicLexer = lexer.MustSimple([]lexer.SimpleRule{
-	{Name: "Ident", Pattern: `-?[a-zA-Z\*]+|\*`},
-	{Name: "List", Pattern: `\([^\(^\)]*\)`},
-	{Name: "QuotedLiteral", Pattern: `"[^"]*"|'[^']*'`},
-	{Name: "FloatingPointNumericConstant", Pattern: `[-+]?(\d+\.\d*|\.\d+)([eE][-+]?\d+)?`},
-	{Name: "Int", Pattern: `[-+]?\d+`},
-	{Name: "OperatorSymbols", Pattern: `[!~=:<>.]+`},
-	{Name: "Whitespace", Pattern: `\s+`},
-})
-
 func parse(filterStr string) (*filter, error) {
-	parser := participle.MustBuild[filter](
-		participle.Lexer(basicLexer),
-		participle.Elide("Whitespace"),
-	)
 	filter, err := parser.ParseString("", filterStr)
 	if err != nil {
 		return nil, err
 	}
 	filter.compileExpression()
 	return filter, nil
-}
-
-func filterProject(project *resourcemanagerpb.Project, filter *filter) (bool, error) {
-	result, err := filter.Terms[0].filterProject(project)
-	if err != nil {
-		return false, err
-	}
-	if filter.Terms[0].Negation {
-		result = !result
-	}
-	logicalOperator := filter.Terms[0].LogicalOperator
-
-	for _, term := range filter.Terms[1:] {
-		resultTerm, err := term.filterProject(project)
-		if err != nil {
-			return false, err
-		}
-		if term.Negation {
-			resultTerm = !resultTerm
-		}
-
-		switch logicalOperator {
-		// AND, Conjuction. Treat conjuction as an AND
-		case "AND", "":
-			result = result && resultTerm
-		// OR
-		case "OR":
-			result = result || resultTerm
-		}
-
-		logicalOperator = term.LogicalOperator
-	}
-	return result, nil
 }
 
 // FilterProjects filters the given projects according to the filterStr filter
@@ -424,7 +423,7 @@ func FilterProjects(projects []*resourcemanagerpb.Project, filterStr string) ([]
 		return nil, err
 	}
 	for _, project := range projects {
-		keepProject, err := filterProject(project, filter)
+		keepProject, err := filter.filterProject(project)
 		if err != nil {
 			return nil, err
 		}

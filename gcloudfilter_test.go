@@ -135,7 +135,7 @@ func TestFilterProjects(t *testing.T) {
 		{
 			name: "Complex 2",
 			args: args{
-				filterStr: `parent:folders* labels.volume:("small",'med*') name ~ "\w+(\s+\w+)*"  AND labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo)`,
+				filterStr: `parent:folders* labels.volume:("small",'med*') name ~ "\w+(\s+\w+)*" AND labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo)`,
 			},
 			want: []*resourcemanagerpb.Project{
 				projects[1],
