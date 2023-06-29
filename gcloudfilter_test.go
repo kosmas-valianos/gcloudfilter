@@ -107,6 +107,7 @@ func TestFilterProjects(t *testing.T) {
 			CreateTime:  timestamppb.Now(),
 			Etag:        `W/"ef2024afcf714f51"`,
 			Labels: map[string]string{
+				"color":  "blue",
 				"volume": "medium",
 				"cpu":    "Intel Skylake",
 				"size":   "-2.5E+10",
@@ -145,6 +146,25 @@ func TestFilterProjects(t *testing.T) {
 			name: "Timestamp, State",
 			args: args{
 				filterStr: "createTime <= " + fmt.Sprintf("\"%v\"", time.Now().UTC().Format(time.RFC3339)) + " AND state>=1 AND state=ACTIVE",
+			},
+			want: []*resourcemanagerpb.Project{
+				projects[0],
+				projects[1],
+			},
+		},
+		{
+			name: "Conjuction having lower precedence than OR - 0",
+			args: args{
+				filterStr: `labels.volume:medium labels.color:red OR labels.color:blue state=1 labels.cpu:* OR -labels.foo:*`,
+			},
+			want: []*resourcemanagerpb.Project{
+				projects[1],
+			},
+		},
+		{
+			name: "Conjuction having lower precedence than OR - 1",
+			args: args{
+				filterStr: `labels.volume:medium OR labels.size:100 labels.color:blue OR labels.color:red state>0`,
 			},
 			want: []*resourcemanagerpb.Project{
 				projects[0],

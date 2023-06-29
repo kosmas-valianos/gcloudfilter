@@ -71,34 +71,53 @@ func (f filter) String() string {
 }
 
 func (f filter) filterProject(project *resourcemanagerpb.Project) (bool, error) {
-	result, err := f.Terms[0].filterProject(project)
-	if err != nil {
-		return false, err
+	// Evaluate each term according to the given project
+	type termResult struct {
+		result          bool
+		logicalOperator string
 	}
-	if f.Terms[0].Negation {
-		result = !result
-	}
-	logicalOperator := f.Terms[0].LogicalOperator
-
-	for _, term := range f.Terms[1:] {
-		resultTerm, err := term.filterProject(project)
+	termsResults := make([]termResult, 0, len(f.Terms))
+	for _, term := range f.Terms {
+		result, err := term.filterProject(project)
 		if err != nil {
 			return false, err
 		}
 		if term.Negation {
-			resultTerm = !resultTerm
+			result = !result
 		}
+		termsResults = append(termsResults, termResult{result: result, logicalOperator: term.LogicalOperator})
+	}
 
-		switch logicalOperator {
-		// AND, Conjuction. Treat conjuction as an AND
-		case "AND", "":
-			result = result && resultTerm
-		// OR
-		case "OR":
-			result = result || resultTerm
+	if len(termsResults) == 1 {
+		return termsResults[0].result, nil
+	}
+
+	// Do the logical operations left to right. Conjunction has lower precedence than OR
+	results := make([]termResult, 0, len(termsResults))
+	leftterm := termsResults[0]
+	for _, rightTerm := range termsResults[1:] {
+		if leftterm.logicalOperator == "OR" {
+			leftterm.result = leftterm.result || rightTerm.result
+			leftterm.logicalOperator = rightTerm.logicalOperator
+		} else if leftterm.logicalOperator == "AND" {
+			leftterm.result = leftterm.result && rightTerm.result
+			leftterm.logicalOperator = rightTerm.logicalOperator
+		} else if leftterm.logicalOperator == "" && (rightTerm.logicalOperator == "AND" || rightTerm.logicalOperator == "") {
+			leftterm.result = leftterm.result && rightTerm.result
+			leftterm.logicalOperator = rightTerm.logicalOperator
+		} else {
+			results = append(results, leftterm)
+			leftterm = rightTerm
 		}
+	}
+	if len(results) == 0 {
+		return leftterm.result, nil
+	}
 
-		logicalOperator = term.LogicalOperator
+	// Do any remaining conjuctions
+	result := results[0].result
+	for _, t := range results[1:] {
+		result = result && t.result
 	}
 	return result, nil
 }
