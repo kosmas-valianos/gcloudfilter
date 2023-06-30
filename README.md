@@ -9,6 +9,5 @@ go get github.com/kosmas-valianos/gcloudfilter
 ## Usage
 Check the unit tests of `FilterProjects()`
 
-## Caveats - Not supported yet
-1. Parentheses to group expressions like `(labels.color="red" OR parent.id:123.4) OR name:HOWL`
-2. Conjunction to have lower precedence than OR
+## Caveats
+1. Parentheses to group expressions like `(labels.color="red" OR parent.id:123.4) OR name:HOWL` are not supported yet
