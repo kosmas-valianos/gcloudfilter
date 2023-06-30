@@ -223,25 +223,27 @@ func (t term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 }
 
 func (t term) evaluateTimestamp(projectTimeStr string) (bool, error) {
-	values := make([]value, 0, 1)
+	filterValues := make([]value, 0, 1)
 	if t.Value != nil {
-		values = append(values, *t.Value)
+		filterValues = append(filterValues, *t.Value)
 	} else if t.ValuesList != nil {
-		values = t.ValuesList.Values
+		filterValues = t.ValuesList.Values
 	}
+
+	projectValue := value{Literal: &projectTimeStr}
 
 	var result bool
 	var err error
-	for _, v := range values {
-		if v.Literal == nil {
+	for _, filterValue := range filterValues {
+		if filterValue.Literal == nil {
 			return false, errors.New("timestamps can only be compared with RFC3339 time literals")
 		}
 		// Make sure the value is given in RFC3339 format
-		_, err := time.Parse(time.RFC3339, *v.Literal)
+		_, err := time.Parse(time.RFC3339, *filterValue.Literal)
 		if err != nil {
 			return false, err
 		}
-		result, err = v.compare(t.Operator, value{Literal: &projectTimeStr})
+		result, err = projectValue.compare(t.Operator, filterValue)
 		if result || err != nil {
 			break
 		}
@@ -250,11 +252,11 @@ func (t term) evaluateTimestamp(projectTimeStr string) (bool, error) {
 }
 
 func (t term) evaluate(projectValueStr string) (bool, error) {
-	values := make([]value, 0, 1)
+	filterValues := make([]value, 0, 1)
 	if t.Value != nil {
-		values = append(values, *t.Value)
+		filterValues = append(filterValues, *t.Value)
 	} else if t.ValuesList != nil {
-		values = t.ValuesList.Values
+		filterValues = t.ValuesList.Values
 	}
 
 	var projectValue value
@@ -266,8 +268,8 @@ func (t term) evaluate(projectValueStr string) (bool, error) {
 
 	var result bool
 	var err error
-	for _, value := range values {
-		result, err = value.compare(t.Operator, projectValue)
+	for _, filterValue := range filterValues {
+		result, err = projectValue.compare(t.Operator, filterValue)
 		if result || err != nil {
 			break
 		}
@@ -317,75 +319,75 @@ func (v value) String() string {
 	return sb.String()
 }
 
-func (v value) equal(p value) bool {
-	if v.Literal != nil && p.Literal != nil {
-		return strings.EqualFold(*v.Literal, *p.Literal)
-	} else if v.Number != nil && p.Number != nil {
-		return *v.Number == *p.Number
+func (v value) equal(filterValue value) bool {
+	if v.Literal != nil && filterValue.Literal != nil {
+		return strings.EqualFold(*v.Literal, *filterValue.Literal)
+	} else if v.Number != nil && filterValue.Number != nil {
+		return *v.Number == *filterValue.Number
 	}
 	return false
 }
 
-func (v value) lessThan(p value) bool {
-	if v.Literal != nil && p.Literal != nil {
-		return *v.Literal < *p.Literal
-	} else if v.Number != nil && p.Number != nil {
-		return *v.Number < *p.Number
+func (v value) lessThan(filterValue value) bool {
+	if v.Literal != nil && filterValue.Literal != nil {
+		return *v.Literal < *filterValue.Literal
+	} else if v.Number != nil && filterValue.Number != nil {
+		return *v.Number < *filterValue.Number
 	}
 	return false
 }
 
-func (v value) greaterThan(p value) bool {
-	if v.Literal != nil && p.Literal != nil {
-		return *v.Literal > *p.Literal
-	} else if v.Number != nil && p.Number != nil {
-		return *v.Number > *p.Number
+func (v value) greaterThan(filterValue value) bool {
+	if v.Literal != nil && filterValue.Literal != nil {
+		return *v.Literal > *filterValue.Literal
+	} else if v.Number != nil && filterValue.Number != nil {
+		return *v.Number > *filterValue.Number
 	}
 	return false
 }
 
-func (v value) matchRegExp(p value, simplePattern bool) (bool, error) {
+func (v value) matchRegExp(filterValue value, simplePattern bool) (bool, error) {
 	var pattern string
 	if simplePattern {
 		pattern = "(?i)"
 	}
-	if v.Literal != nil && p.Literal != nil {
-		return regexp.MatchString(pattern+*v.Literal, *p.Literal)
-	} else if v.Number != nil && p.Number != nil {
-		return regexp.MatchString(pattern+fmt.Sprint(*v.Number), fmt.Sprint(*p.Number))
+	if v.Literal != nil && filterValue.Literal != nil {
+		return regexp.MatchString(pattern+*filterValue.Literal, *v.Literal)
+	} else if v.Number != nil && filterValue.Number != nil {
+		return regexp.MatchString(pattern+fmt.Sprint(*filterValue.Number), fmt.Sprint(*v.Number))
 	}
 	return false, nil
 }
 
-func (v value) compare(operator string, p value) (bool, error) {
+func (v value) compare(operator string, filterValue value) (bool, error) {
 	switch operator {
 	case ":":
 		// Case insensitive operator
-		return v.matchRegExp(p, true)
+		return v.matchRegExp(filterValue, true)
 	case "=":
-		return v.equal(p), nil
+		return v.equal(filterValue), nil
 	case "!=":
-		return !v.equal(p), nil
+		return !v.equal(filterValue), nil
 	case "<":
-		return v.lessThan(p), nil
+		return v.lessThan(filterValue), nil
 	case "<=":
-		result := v.equal(p)
+		result := v.equal(filterValue)
 		if !result {
-			return v.lessThan(p), nil
+			return v.lessThan(filterValue), nil
 		}
 		return result, nil
 	case ">=":
-		result := v.equal(p)
+		result := v.equal(filterValue)
 		if !result {
-			return v.greaterThan(p), nil
+			return v.greaterThan(filterValue), nil
 		}
 		return result, nil
 	case ">":
-		return v.greaterThan(p), nil
+		return v.greaterThan(filterValue), nil
 	case "~":
-		return v.matchRegExp(p, false)
+		return v.matchRegExp(filterValue, false)
 	case "!~":
-		result, err := v.matchRegExp(p, false)
+		result, err := v.matchRegExp(filterValue, false)
 		if err != nil {
 			return false, nil
 		}
