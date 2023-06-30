@@ -278,16 +278,19 @@ func (t term) evaluate(projectValueStr string) (bool, error) {
 		filterValues = t.ValuesList.Values
 	}
 
-	var projectValue value
-	if number, err := strconv.ParseFloat(projectValueStr, 64); err == nil {
-		projectValue.Number = &number
-	} else {
-		projectValue.Literal = &projectValueStr
-	}
-
 	var result bool
 	var err error
 	for _, filterValue := range filterValues {
+		var projectValue value
+		if filterValue.Number != nil {
+			number, err := strconv.ParseFloat(projectValueStr, 64)
+			if err != nil {
+				return false, err
+			}
+			projectValue.Number = &number
+		} else {
+			projectValue.Literal = &projectValueStr
+		}
 		result, err = projectValue.compare(t.Operator, filterValue)
 		if result || err != nil {
 			break
@@ -330,10 +333,10 @@ func (v value) String() string {
 	var sb strings.Builder
 	sb.WriteString("Value:\n")
 	if v.Literal != nil {
-		sb.WriteString(fmt.Sprintf("\n\tLiteral: %v", *v.Literal))
+		sb.WriteString(fmt.Sprintf("\tLiteral: %v\n", *v.Literal))
 	}
 	if v.Number != nil {
-		sb.WriteString(fmt.Sprintf("\n\tFloating point numeric constant: %v\n", *v.Number))
+		sb.WriteString(fmt.Sprintf("\tNumber: %v\n", *v.Number))
 	}
 	return sb.String()
 }
@@ -373,7 +376,8 @@ func (v value) matchRegExp(filterValue value, simplePattern bool) (bool, error) 
 	if v.Literal != nil && filterValue.Literal != nil {
 		return regexp.MatchString(pattern+*filterValue.Literal, *v.Literal)
 	} else if v.Number != nil && filterValue.Number != nil {
-		return regexp.MatchString(pattern+fmt.Sprint(*filterValue.Number), fmt.Sprint(*v.Number))
+		filterValueNumber := regexp.QuoteMeta(fmt.Sprint(*filterValue.Number))
+		return regexp.MatchString(pattern+filterValueNumber, fmt.Sprint(*v.Number))
 	}
 	return false, nil
 }
