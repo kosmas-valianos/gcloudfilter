@@ -127,7 +127,7 @@ func TestFilterProjects(t *testing.T) {
 		{
 			name: "Complex 1",
 			args: args{
-				filterStr: `labels.volume:medium OR parent.type=organizations AND parent.id:448593862441 parent.id:"448593862441*" labels.color:red name:appgate* AND NOT labels.smell:* labels.volume:*`,
+				filterStr: `labels.volume:medium OR id:"appgate-dev" parent.type=organizations AND parent.id:448593862441 parent.id:"448593862441*" labels.color:red name:appgate* AND NOT labels.smell:* labels.volume:*`,
 			},
 			want: []*resourcemanagerpb.Project{
 				projects[0],
