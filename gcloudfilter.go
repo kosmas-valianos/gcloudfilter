@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"github.com/alecthomas/participle/v2"
@@ -426,8 +427,66 @@ func (v value) simplePattern() {
 	}
 }
 
+func isOperator(ch byte) bool {
+	operators := [...]byte{':', '=', '<', '>', '~', '('}
+	for i := range operators {
+		if operators[i] == ch {
+			return true
+		}
+	}
+	return false
+}
+
+func quoteStringValues(filterStr string) string {
+	var sb strings.Builder
+	sb.Grow(len(filterStr) + 64)
+	var wrap, operator, inQuotes bool
+	for i, ch := range filterStr {
+		if ch == '\'' || ch == '"' {
+			inQuotes = !inQuotes
+		}
+
+		if inQuotes {
+			sb.WriteRune(ch)
+			continue
+		}
+
+		if isOperator(filterStr[i]) {
+			operator = true
+			sb.WriteRune(ch)
+		} else if operator {
+			if ch == ' ' && !wrap {
+				continue
+			}
+			if ch == '*' || ch == '\'' || ch == '"' || ch == '-' || ch == '+' || unicode.IsNumber(ch) {
+				sb.WriteRune(ch)
+			} else {
+				sb.WriteRune('"')
+				sb.WriteRune(ch)
+				wrap = true
+			}
+			operator = false
+		} else if wrap {
+			if ch == ' ' {
+				sb.WriteRune('"')
+				sb.WriteRune(ch)
+				wrap = false
+			} else if i == len(filterStr)-1 {
+				sb.WriteRune(ch)
+				sb.WriteRune('"')
+				wrap = false
+			} else {
+				sb.WriteRune(ch)
+			}
+		} else {
+			sb.WriteRune(ch)
+		}
+	}
+	return sb.String()
+}
+
 func parse(filterStr string) (*filter, error) {
-	filter, err := parser.ParseString("", filterStr)
+	filter, err := parser.ParseString("", quoteStringValues(filterStr))
 	if err != nil {
 		return nil, err
 	}
