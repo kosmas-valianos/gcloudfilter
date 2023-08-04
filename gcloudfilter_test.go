@@ -127,7 +127,7 @@ func TestFilterProjects(t *testing.T) {
 		{
 			name: "Complex 1",
 			args: args{
-				filterStr: `labels.volume:medium OR id:appgate-dev parent.type=organizations AND parent.id:448593862441 parent.id:"448593862441*" labels.color:red name:appgate* AND NOT labels.smell:* labels.volume:*`,
+				filterStr: `labels.volume:medium OR ((((true))) id:appgate-dev parent.type=organizations AND parent.id:448593862441) parent.id:"448593862441*" labels.color:red name:appgate* AND NOT labels.smell:* labels.volume:*`,
 			},
 			want: []*resourcemanagerpb.Project{
 				projects[0],
@@ -136,7 +136,7 @@ func TestFilterProjects(t *testing.T) {
 		{
 			name: "Complex 2",
 			args: args{
-				filterStr: `parent:folders* labels.volume:("small",'med*') name ~ "\w+(\s+\w+)*" AND labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo)`,
+				filterStr: `parent:folders* labels.volume:("small",'med*') name ~ "\w+(\s+\w+)*" AND (labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo))`,
 			},
 			want: []*resourcemanagerpb.Project{
 				projects[1],

@@ -79,12 +79,18 @@ func (f filter) filterProject(project *resourcemanagerpb.Project) (bool, error) 
 	}
 	termsResults := make([]termResult, 0, len(f.Terms))
 	for _, term := range f.Terms {
-		result, err := term.filterProject(project)
-		if err != nil {
-			return false, err
-		}
-		if term.Negation {
-			result = !result
+		var result bool
+		var err error
+		if term.SubExpressionResult != nil {
+			result = *term.SubExpressionResult
+		} else {
+			result, err = term.filterProject(project)
+			if err != nil {
+				return false, err
+			}
+			if term.Negation {
+				result = !result
+			}
 		}
 		termsResults = append(termsResults, termResult{result: result, logicalOperator: term.LogicalOperator})
 	}
@@ -125,12 +131,14 @@ func (f filter) filterProject(project *resourcemanagerpb.Project) (bool, error) 
 
 func (f filter) compileExpression() {
 	for i := range f.Terms {
-		if f.Terms[i].Key[0] == '-' {
-			f.Terms[i].Negation = true
-			f.Terms[i].Key = f.Terms[i].Key[1:]
+		if f.Terms[i].SubExpressionResult == nil {
+			if f.Terms[i].Key[0] == '-' {
+				f.Terms[i].Negation = true
+				f.Terms[i].Key = f.Terms[i].Key[1:]
+			}
+			f.Terms[i].unQuote()
+			f.Terms[i].simplePattern()
 		}
-		f.Terms[i].unQuote()
-		f.Terms[i].simplePattern()
 	}
 }
 
@@ -171,13 +179,14 @@ func (l *list) Capture(v []string) error {
 }
 
 type term struct {
-	Negation        bool   `parser:"(@'NOT'?"                                                    json:"negation,omitempty"`
-	Key             string `parser:"@Ident"                                                      json:"key,omitempty"`
-	AttributeKey    string `parser:"('.' @Ident)?)!"                                             json:"attribute-key,omitempty"`
-	Operator        string `parser:"@(':' | '=' | '!=' | '<' | '<=' | '>=' | '>' | '~' | '!~')!" json:"operator,omitempty"`
-	ValuesList      *list  `parser:"(@List"                                                      json:"values,omitempty"`
-	Value           *value `parser:"| @@)!"                                                      json:"value,omitempty"`
-	LogicalOperator string `parser:"@('AND' | 'OR')?"                                            json:"logical-operator,omitempty"`
+	Negation            bool   `parser:"((@'NOT'?"                                                   json:"negation,omitempty"`
+	Key                 string `parser:"@Ident"                                                      json:"key,omitempty"`
+	AttributeKey        string `parser:"('.' @Ident)?)!"                                             json:"attribute-key,omitempty"`
+	Operator            string `parser:"@(':' | '=' | '!=' | '<' | '<=' | '>=' | '>' | '~' | '!~')!" json:"operator,omitempty"`
+	ValuesList          *list  `parser:"(@List"                                                      json:"values,omitempty"`
+	Value               *value `parser:"| @@)!"                                                      json:"value,omitempty"`
+	SubExpressionResult *bool  `parser:"|@('true'|'false'))"                                         json:"subexpression-result,omitempty"`
+	LogicalOperator     string `parser:"@('AND' | 'OR')?"                                            json:"logical-operator,omitempty"`
 }
 
 func (t term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
@@ -494,19 +503,86 @@ func parse(filterStr string) (*filter, error) {
 	return filter, nil
 }
 
+// ((labels.color="red" OR parent.id:123.4) OR (name:HOWL AND labels.foo:*)) AND name:'bOWL'
+func extractInnermostExpression(filterStr string) (string, error) {
+	var open, close []int
+	var list, quoted bool
+	for i, ch := range filterStr {
+		if ch == '(' {
+			if i != 0 && (filterStr[i-1] == ':' || filterStr[i-1] == '=') {
+				// Ignore lists: e.g. labels.volume:("small",'med*')
+				list = true
+			} else if !quoted {
+				// Append only when the parentheses are not inside quotes
+				open = append(open, i)
+			}
+		} else if ch == ')' {
+			if list {
+				list = false
+			} else if !quoted {
+				// Append only when the parentheses are not inside quotes
+				close = append(close, i)
+			}
+		} else if ch == '"' || ch == '\'' {
+			quoted = !quoted
+		}
+	}
+
+	if len(open) == 0 && len(close) == 0 {
+		return "", nil
+	}
+	if len(open) != len(close) {
+		return "", errors.New("unbalanced parentheses")
+	}
+
+	innermostOpen := open[len(open)-1]
+	for _, innermostClose := range close {
+		if innermostClose > innermostOpen {
+			return filterStr[innermostOpen+1 : innermostClose], nil
+		}
+	}
+	return "", errors.New("unmatching parentheses")
+}
+
+func filterProjectSubExpression(project *resourcemanagerpb.Project, subFilterStr string) (bool, error) {
+	filter, err := parse(subFilterStr)
+	if err != nil {
+		return false, err
+	}
+	keepProject, err := filter.filterProject(project)
+	if err != nil {
+		return false, err
+	}
+	return keepProject, nil
+}
+
+func filterProject(project *resourcemanagerpb.Project, filterStr string) (bool, error) {
+	var keepProject bool
+	subFilterStr, err := extractInnermostExpression(filterStr)
+	for ; subFilterStr != "" && err == nil; subFilterStr, err = extractInnermostExpression(filterStr) {
+		keepProject, err = filterProjectSubExpression(project, subFilterStr)
+		if err != nil {
+			return false, nil
+		}
+		filterStr = strings.Replace(filterStr, "("+subFilterStr+")", fmt.Sprint(keepProject), 1)
+	}
+	if err != nil {
+		return false, err
+	}
+	keepProject, err = filterProjectSubExpression(project, filterStr)
+	if err != nil {
+		return false, nil
+	}
+	return keepProject, nil
+}
+
 // FilterProjects filters the given projects according to the filterStr filter
 // Notes:
 // 1. The grammar and syntax is specified at https://cloud.google.com/sdk/gcloud/reference/topic/filters
-// Caveats:
-// 1. Parentheses to group expressions like `(labels.color="red" OR parent.id:123.4) OR name:HOWL` are not supported yet
 func FilterProjects(projects []*resourcemanagerpb.Project, filterStr string) ([]*resourcemanagerpb.Project, error) {
 	filteredProjects := make([]*resourcemanagerpb.Project, 0, len(projects))
-	filter, err := parse(filterStr)
-	if err != nil {
-		return nil, err
-	}
 	for _, project := range projects {
-		keepProject, err := filter.filterProject(project)
+		keepProject, err := filterProject(project, filterStr)
 		if err != nil {
 			return nil, err
 		}
