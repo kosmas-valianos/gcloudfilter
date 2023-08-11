@@ -82,7 +82,7 @@ func (f filter) filterProject(project *resourcemanagerpb.Project) (bool, error) 
 		var result bool
 		var err error
 		if term.SubExpressionResult != nil {
-			result = *term.SubExpressionResult
+			result = bool(*term.SubExpressionResult)
 		} else {
 			result, err = term.filterProject(project)
 			if err != nil {
@@ -178,15 +178,22 @@ func (l *list) Capture(v []string) error {
 	return nil
 }
 
+type boolean bool
+
+func (b *boolean) Capture(values []string) error {
+	*b = values[0] == "true"
+	return nil
+}
+
 type term struct {
-	Negation            bool   `parser:"((@'NOT'?"                                                   json:"negation,omitempty"`
-	Key                 string `parser:"@Ident"                                                      json:"key,omitempty"`
-	AttributeKey        string `parser:"('.' @Ident)?)!"                                             json:"attribute-key,omitempty"`
-	Operator            string `parser:"@(':' | '=' | '!=' | '<' | '<=' | '>=' | '>' | '~' | '!~')!" json:"operator,omitempty"`
-	ValuesList          *list  `parser:"(@List"                                                      json:"values,omitempty"`
-	Value               *value `parser:"| @@)!"                                                      json:"value,omitempty"`
-	SubExpressionResult *bool  `parser:"|@('true'|'false'))"                                         json:"subexpression-result,omitempty"`
-	LogicalOperator     string `parser:"@('AND' | 'OR')?"                                            json:"logical-operator,omitempty"`
+	Negation            bool     `parser:"((@'NOT'?"                                                   json:"negation,omitempty"`
+	Key                 string   `parser:"@Ident"                                                      json:"key,omitempty"`
+	AttributeKey        string   `parser:"('.' @Ident)?)!"                                             json:"attribute-key,omitempty"`
+	Operator            string   `parser:"@(':' | '=' | '!=' | '<' | '<=' | '>=' | '>' | '~' | '!~')!" json:"operator,omitempty"`
+	ValuesList          *list    `parser:"(@List"                                                      json:"values,omitempty"`
+	Value               *value   `parser:"| @@)!"                                                      json:"value,omitempty"`
+	SubExpressionResult *boolean `parser:"|@('true'|'false'))"                                         json:"subexpression-result,omitempty"`
+	LogicalOperator     string   `parser:"@('AND' | 'OR')?"                                            json:"logical-operator,omitempty"`
 }
 
 func (t term) filterProject(project *resourcemanagerpb.Project) (bool, error) {

@@ -171,6 +171,15 @@ func TestFilterProjects(t *testing.T) {
 				projects[1],
 			},
 		},
+		{
+			name: "Parentheses wrapping the whole filter",
+			args: args{
+				filterStr: `(id=("appgate-dev" "foo") AND (-labels.boo:* OR labels.envy:*))`,
+			},
+			want: []*resourcemanagerpb.Project{
+				projects[0],
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
