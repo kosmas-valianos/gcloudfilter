@@ -19,6 +19,7 @@ package gcloudfilter
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,6 +65,13 @@ func TestParse(t *testing.T) {
 			},
 			want: `{"terms":[{"negation":true,"key":"labels","attribute-key":"volume","operator":":","value":{"literal":"*"},"logical-operator":"AND"},{"negation":true,"key":"labels","attribute-key":"color","operator":":","value":{"literal":"*"}}]}`,
 		},
+		{
+			name: "Parse error",
+			args: args{
+				filterStr: `NOT labels.volume:* AND --labels.color:*`,
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -72,7 +80,7 @@ func TestParse(t *testing.T) {
 				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if got.String() != tt.want {
+			if got != nil && got.String() != tt.want {
 				t.Errorf("Parse() = %v, want %v", got, tt.want)
 			} else {
 				t.Log(got)
@@ -81,8 +89,22 @@ func TestParse(t *testing.T) {
 	}
 }
 
+type projectsArray []*resourcemanagerpb.Project
+
+func (p projectsArray) String() string {
+	if len(p) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.Grow(128)
+	for _, project := range p {
+		sb.WriteString(project.ProjectId + " ")
+	}
+	return sb.String()[:sb.Len()-1]
+}
+
 func TestFilterProjects(t *testing.T) {
-	projects := []*resourcemanagerpb.Project{
+	projects := projectsArray{
 		{
 			Name:        "projects/82699087620",
 			Parent:      "organizations/448593862441",
@@ -119,17 +141,17 @@ func TestFilterProjects(t *testing.T) {
 		filterStr string
 	}
 	tests := []struct {
-		name    string
-		args    args
-		want    []*resourcemanagerpb.Project
-		wantErr bool
+		name         string
+		args         args
+		wantProjects projectsArray
+		wantErr      bool
 	}{
 		{
 			name: "Complex 1",
 			args: args{
 				filterStr: `labels.volume:medium OR ((((true))) id:appgate-dev parent.type=organizations AND parent.id:448593862441) parent.id:"448593862441*" labels.color:red name:appgate* AND NOT labels.smell:* labels.volume:*`,
 			},
-			want: []*resourcemanagerpb.Project{
+			wantProjects: []*resourcemanagerpb.Project{
 				projects[0],
 			},
 		},
@@ -138,7 +160,7 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				filterStr: `parent:folders* labels.volume:("small",'med*') name ~ "\w+(\s+\w+)*" AND (labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo))`,
 			},
-			want: []*resourcemanagerpb.Project{
+			wantProjects: []*resourcemanagerpb.Project{
 				projects[1],
 			},
 		},
@@ -147,7 +169,7 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				filterStr: "createTime <= " + fmt.Sprintf("\"%v\"", time.Now().UTC().Format(time.RFC3339)) + " AND state>=1 AND state=ACTIVE",
 			},
-			want: []*resourcemanagerpb.Project{
+			wantProjects: []*resourcemanagerpb.Project{
 				projects[0],
 				projects[1],
 			},
@@ -157,7 +179,7 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				filterStr: `labels.volume:medium labels.color:red OR labels.color:blue state=1 labels.cpu:* OR -labels.foo:*`,
 			},
-			want: []*resourcemanagerpb.Project{
+			wantProjects: []*resourcemanagerpb.Project{
 				projects[1],
 			},
 		},
@@ -166,25 +188,40 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				filterStr: `labels.volume:medium OR labels.size:100 labels.color:blue OR labels.color:red state>0`,
 			},
-			want: []*resourcemanagerpb.Project{
+			wantProjects: []*resourcemanagerpb.Project{
 				projects[0],
 				projects[1],
 			},
 		},
+		{
+			name: "Parentheses wrapping the whole filter",
+			args: args{
+				filterStr: `(id=("appgate-dev" "foo") AND (-labels.boo:* OR labels.envy:*))`,
+			},
+			wantProjects: []*resourcemanagerpb.Project{
+				projects[0],
+			},
+		},
+		{
+			name: "Unbalanced parentheses",
+			args: args{
+				filterStr: `(id=("appgate-dev" "foo") AND ((-labels.boo:* OR labels.envy:*))`,
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := FilterProjects(projects, tt.args.filterStr)
+			gotProjects, err := FilterProjects(projects, tt.args.filterStr)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FilterProjects() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("FilterProjects() error: \"%v\". wantErr: %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FilterProjects() = %v, want %v", got, tt.want)
+			gotProjectsArray := projectsArray(gotProjects)
+			if !reflect.DeepEqual(gotProjectsArray, tt.wantProjects) {
+				t.Errorf("FilterProjects(): \"%v\". want: \"%v\"", gotProjectsArray, tt.wantProjects)
 			}
-			for _, project := range got {
-				t.Log(project.ProjectId)
-			}
+			t.Log(gotProjectsArray)
 		})
 	}
 }
