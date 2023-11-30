@@ -205,16 +205,16 @@ func (t term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 		switch attributeKey {
 		// e.g. parent:folders/123
 		case "":
-			return t.evaluate(project.Parent)
+			return t.evaluate(project.GetParent())
 		// e.g. parent.type:organization, parent.type:folder
 		case "type":
-			parentType := strings.Split(project.Parent, "/")[0]
+			parentType := strings.Split(project.GetParent(), "/")[0]
 			return t.evaluate(parentType)
 		// e.g. parent.id:123
 		case "id":
-			parentParts := strings.Split(project.Parent, "/")
+			parentParts := strings.Split(project.GetParent(), "/")
 			if len(parentParts) < 2 {
-				return false, fmt.Errorf("invalid project's parent %v", project.Parent)
+				return false, fmt.Errorf("invalid project's parent %v", project.GetParent())
 			}
 			return t.evaluate(parentParts[1])
 		default:
@@ -222,28 +222,28 @@ func (t term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
 		}
 	case "id", "projectid":
 		// e.g. id:appgate-dev
-		return t.evaluate(project.ProjectId)
+		return t.evaluate(project.GetProjectId())
 	case "state", "lifecyclestate":
 		// e.g. state:ACTIVE
 		if t.Value.Literal != nil {
-			return t.evaluate(project.State.String())
+			return t.evaluate(project.GetState().String())
 		}
 		// e.g. state:1
-		return t.evaluate(fmt.Sprint(project.State.Number()))
+		return t.evaluate(fmt.Sprint(project.GetState().Number()))
 	case "displayname", "name":
-		return t.evaluate(project.DisplayName)
+		return t.evaluate(project.GetDisplayName())
 	case "createtime":
-		return t.evaluateTimestamp(project.CreateTime.AsTime().Format(time.RFC3339))
+		return t.evaluateTimestamp(project.GetCreateTime().AsTime().Format(time.RFC3339))
 	case "updatetime":
-		return t.evaluateTimestamp(project.UpdateTime.AsTime().Format(time.RFC3339))
+		return t.evaluateTimestamp(project.GetUpdateTime().AsTime().Format(time.RFC3339))
 	case "deletetime":
-		return t.evaluateTimestamp(project.DeleteTime.AsTime().Format(time.RFC3339))
+		return t.evaluateTimestamp(project.GetDeleteTime().AsTime().Format(time.RFC3339))
 	case "etag":
-		return t.evaluate(project.Etag)
+		return t.evaluate(project.GetEtag())
 	case "labels":
 		// e.g. labels.color:red, labels.color:*, -labels.color:red
 		labelKeyFilter := t.AttributeKey
-		for labelKey, labelValue := range project.Labels {
+		for labelKey, labelValue := range project.GetLabels() {
 			if labelKey == labelKeyFilter {
 				// Existence check
 				if t.Value != nil && t.Value.Literal != nil && *t.Value.Literal == "*" {
