@@ -28,7 +28,7 @@ type gcpProject struct {
 	project *resourcemanagerpb.Project
 }
 
-func (g gcpProject) filterResource(t term) (bool, error) {
+func (g gcpProject) filterTerm(t term) (bool, error) {
 	// Search expressions are case insensitive
 	key := strings.ToLower(t.Key)
 	switch key {
@@ -90,9 +90,9 @@ func (g gcpProject) filterResource(t term) (bool, error) {
 	}
 }
 
-// FilterProjects filters the given projects according to the gcpFilter filter
+// FilterProjects filters the given projects according to the gcpFilter
 // Notes:
-// 1. The grammar and syntax is specified at https://cloud.google.com/sdk/gcloud/reference/topic/filters
+//  1. The query shall comply with https://cloud.google.com/resource-manager/reference/rest/v3/projects/search
 func FilterProjects(projects []*resourcemanagerpb.Project, gcpFilter string) ([]*resourcemanagerpb.Project, error) {
 	filteredProjects := make([]*resourcemanagerpb.Project, 0, len(projects))
 	for _, project := range projects {
@@ -102,7 +102,7 @@ func FilterProjects(projects []*resourcemanagerpb.Project, gcpFilter string) ([]
 			},
 			gcpFilter: gcpFilter,
 		}
-		keepProject, err := resource.filterResource()
+		keepProject, err := resource.filter()
 		if err != nil {
 			return nil, err
 		}

@@ -36,7 +36,7 @@ func (p projectsArray) String() string {
 	var sb strings.Builder
 	sb.Grow(128)
 	for _, project := range p {
-		sb.WriteString(project.ProjectId + " ")
+		sb.WriteString(project.GetProjectId() + " ")
 	}
 	return sb.String()[:sb.Len()-1]
 }
@@ -89,7 +89,7 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				gcpFilter: `labels.volume:medium OR ((((true))) id:appgate-dev parent.type=organizations AND parent.id:448593862441) parent.id:"448593862441*" labels.color:red name:appgate* AND NOT labels.smell:* labels.volume:*`,
 			},
-			wantProjects: []*resourcemanagerpb.Project{
+			wantProjects: projectsArray{
 				projects[0],
 			},
 		},
@@ -98,7 +98,7 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				gcpFilter: `parent:folders* labels.volume:("small",'med*') name ~ "\w+(\s+\w+)*" AND (labels.size=(-25000000000 "34" -2.4E+10) AND labels.cpu:("Intel Skylake" foo))`,
 			},
-			wantProjects: []*resourcemanagerpb.Project{
+			wantProjects: projectsArray{
 				projects[1],
 			},
 		},
@@ -107,7 +107,7 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				gcpFilter: "createTime <= " + fmt.Sprintf("\"%v\"", time.Now().UTC().Format(time.RFC3339)) + " AND state>=1 AND state=ACTIVE",
 			},
-			wantProjects: []*resourcemanagerpb.Project{
+			wantProjects: projectsArray{
 				projects[0],
 				projects[1],
 			},
@@ -117,7 +117,7 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				gcpFilter: `labels.volume:medium labels.color:red OR labels.color:blue state=1 labels.cpu:* OR -labels.foo:*`,
 			},
-			wantProjects: []*resourcemanagerpb.Project{
+			wantProjects: projectsArray{
 				projects[1],
 			},
 		},
@@ -126,7 +126,7 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				gcpFilter: `labels.volume:medium OR labels.size:100 labels.color:blue OR labels.color:red state>0`,
 			},
-			wantProjects: []*resourcemanagerpb.Project{
+			wantProjects: projectsArray{
 				projects[0],
 				projects[1],
 			},
@@ -136,7 +136,7 @@ func TestFilterProjects(t *testing.T) {
 			args: args{
 				gcpFilter: `(id=("appgate-dev" "foo") AND (-labels.boo:* OR labels.envy:*))`,
 			},
-			wantProjects: []*resourcemanagerpb.Project{
+			wantProjects: projectsArray{
 				projects[0],
 			},
 		},
