@@ -3,8 +3,9 @@ module github.com/kosmas-valianos/gcloudfilter
 go 1.21
 
 require (
+	cloud.google.com/go/compute v1.23.3
 	cloud.google.com/go/resourcemanager v1.9.4
-	github.com/alecthomas/participle/v2 v2.1.0
+	github.com/alecthomas/participle/v2 v2.1.1
 	google.golang.org/protobuf v1.31.0
 )
 
