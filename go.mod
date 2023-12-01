@@ -1,6 +1,6 @@
 module github.com/kosmas-valianos/gcloudfilter
 
-go 1.20
+go 1.21
 
 require (
 	cloud.google.com/go/resourcemanager v1.9.4

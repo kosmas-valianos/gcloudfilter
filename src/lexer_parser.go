@@ -26,12 +26,11 @@ import (
 	"time"
 	"unicode"
 
-	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"github.com/alecthomas/participle/v2"
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
-var parser = participle.MustBuild[filter](
+var parser = participle.MustBuild[grammar](
 	participle.Lexer(lexer.MustSimple([]lexer.SimpleRule{
 		{Name: "Ident", Pattern: `-?[a-zA-Z\*]+|\*`},
 		{Name: "List", Pattern: `\([^\(^\)]*\)`},
@@ -44,100 +43,27 @@ var parser = participle.MustBuild[filter](
 	participle.Elide("Whitespace"),
 )
 
-func wildcardToRegexp(pattern string) string {
-	components := strings.Split(pattern, "*")
-	if len(components) == 1 {
-		return "^" + pattern + "$"
-	}
-	var result strings.Builder
-	for i, literal := range components {
-		if i > 0 {
-			result.WriteString(".*")
-		}
-		result.WriteString(regexp.QuoteMeta(literal))
-	}
-	return "^" + result.String() + "$"
-}
-
-type filter struct {
+type grammar struct {
 	Terms []term `parser:"@@+" json:"terms"`
 }
 
-func (f filter) String() string {
-	json, err := json.Marshal(f)
+func (g grammar) String() string {
+	json, err := json.Marshal(g)
 	if err != nil {
 		return err.Error()
 	}
 	return string(json)
 }
 
-func (f filter) filterProject(project *resourcemanagerpb.Project) (bool, error) {
-	// Evaluate each term according to the given project
-	type termResult struct {
-		result          bool
-		logicalOperator string
-	}
-	termsResults := make([]termResult, 0, len(f.Terms))
-	for _, term := range f.Terms {
-		var result bool
-		var err error
-		if term.SubExpressionResult != nil {
-			result = bool(*term.SubExpressionResult)
-		} else {
-			result, err = term.filterProject(project)
-			if err != nil {
-				return false, err
+func (g grammar) compileExpression() {
+	for i := range g.Terms {
+		if g.Terms[i].SubExpressionResult == nil {
+			if g.Terms[i].Key[0] == '-' {
+				g.Terms[i].Negation = true
+				g.Terms[i].Key = g.Terms[i].Key[1:]
 			}
-			if term.Negation {
-				result = !result
-			}
-		}
-		termsResults = append(termsResults, termResult{result: result, logicalOperator: term.LogicalOperator})
-	}
-
-	if len(termsResults) == 1 {
-		return termsResults[0].result, nil
-	}
-
-	// Do the logical operations left to right. Conjunction has lower precedence than OR
-	results := make([]termResult, 0, len(termsResults))
-	leftterm := termsResults[0]
-	for _, rightTerm := range termsResults[1:] {
-		if leftterm.logicalOperator == "OR" {
-			leftterm.result = leftterm.result || rightTerm.result
-			leftterm.logicalOperator = rightTerm.logicalOperator
-		} else if leftterm.logicalOperator == "AND" {
-			leftterm.result = leftterm.result && rightTerm.result
-			leftterm.logicalOperator = rightTerm.logicalOperator
-		} else if leftterm.logicalOperator == "" && (rightTerm.logicalOperator == "AND" || rightTerm.logicalOperator == "") {
-			leftterm.result = leftterm.result && rightTerm.result
-			leftterm.logicalOperator = rightTerm.logicalOperator
-		} else {
-			results = append(results, leftterm)
-			leftterm = rightTerm
-		}
-	}
-	if len(results) == 0 {
-		return leftterm.result, nil
-	}
-
-	// Do any remaining conjuctions
-	result := results[0].result
-	for _, t := range results[1:] {
-		result = result && t.result
-	}
-	return result, nil
-}
-
-func (f filter) compileExpression() {
-	for i := range f.Terms {
-		if f.Terms[i].SubExpressionResult == nil {
-			if f.Terms[i].Key[0] == '-' {
-				f.Terms[i].Negation = true
-				f.Terms[i].Key = f.Terms[i].Key[1:]
-			}
-			f.Terms[i].unQuote()
-			f.Terms[i].simplePattern()
+			g.Terms[i].unQuote()
+			g.Terms[i].simplePattern()
 		}
 	}
 }
@@ -194,68 +120,6 @@ type term struct {
 	Value               *value   `parser:"| @@)!"                                                      json:"value,omitempty"`
 	SubExpressionResult *boolean `parser:"|@('true'|'false'))"                                         json:"subexpression-result,omitempty"`
 	LogicalOperator     string   `parser:"@('AND' | 'OR')?"                                            json:"logical-operator,omitempty"`
-}
-
-func (t term) filterProject(project *resourcemanagerpb.Project) (bool, error) {
-	// Search expressions are case insensitive
-	key := strings.ToLower(t.Key)
-	switch key {
-	case "parent":
-		attributeKey := strings.ToLower(t.AttributeKey)
-		switch attributeKey {
-		// e.g. parent:folders/123
-		case "":
-			return t.evaluate(project.GetParent())
-		// e.g. parent.type:organization, parent.type:folder
-		case "type":
-			parentType := strings.Split(project.GetParent(), "/")[0]
-			return t.evaluate(parentType)
-		// e.g. parent.id:123
-		case "id":
-			parentParts := strings.Split(project.GetParent(), "/")
-			if len(parentParts) < 2 {
-				return false, fmt.Errorf("invalid project's parent %v", project.GetParent())
-			}
-			return t.evaluate(parentParts[1])
-		default:
-			return false, fmt.Errorf("unknown attribute key %v", t.AttributeKey)
-		}
-	case "id", "projectid":
-		// e.g. id:appgate-dev
-		return t.evaluate(project.GetProjectId())
-	case "state", "lifecyclestate":
-		// e.g. state:ACTIVE
-		if t.Value.Literal != nil {
-			return t.evaluate(project.GetState().String())
-		}
-		// e.g. state:1
-		return t.evaluate(fmt.Sprint(project.GetState().Number()))
-	case "displayname", "name":
-		return t.evaluate(project.GetDisplayName())
-	case "createtime":
-		return t.evaluateTimestamp(project.GetCreateTime().AsTime().Format(time.RFC3339))
-	case "updatetime":
-		return t.evaluateTimestamp(project.GetUpdateTime().AsTime().Format(time.RFC3339))
-	case "deletetime":
-		return t.evaluateTimestamp(project.GetDeleteTime().AsTime().Format(time.RFC3339))
-	case "etag":
-		return t.evaluate(project.GetEtag())
-	case "labels":
-		// e.g. labels.color:red, labels.color:*, -labels.color:red
-		labelKeyFilter := t.AttributeKey
-		for labelKey, labelValue := range project.GetLabels() {
-			if labelKey == labelKeyFilter {
-				// Existence check
-				if t.Value != nil && t.Value.Literal != nil && *t.Value.Literal == "*" {
-					return true, nil
-				}
-				return t.evaluate(labelValue)
-			}
-		}
-		return false, nil
-	default:
-		return false, fmt.Errorf("unknown key %v", t.Key)
-	}
 }
 
 func (t term) evaluateTimestamp(projectTimeStr string) (bool, error) {
@@ -443,6 +307,21 @@ func (v value) simplePattern() {
 	}
 }
 
+func wildcardToRegexp(pattern string) string {
+	components := strings.Split(pattern, "*")
+	if len(components) == 1 {
+		return "^" + pattern + "$"
+	}
+	var result strings.Builder
+	for i, literal := range components {
+		if i > 0 {
+			result.WriteString(".*")
+		}
+		result.WriteString(regexp.QuoteMeta(literal))
+	}
+	return "^" + result.String() + "$"
+}
+
 func isOperator(ch byte) bool {
 	operators := [...]byte{':', '=', '<', '>', '~', '('}
 	for i := range operators {
@@ -453,11 +332,11 @@ func isOperator(ch byte) bool {
 	return false
 }
 
-func quoteStringValues(filterStr string) string {
+func quoteStringValues(gcpFilter string) string {
 	var sb strings.Builder
-	sb.Grow(len(filterStr) + 64)
+	sb.Grow(len(gcpFilter) + 64)
 	var wrap, operator, inQuotes bool
-	for i, ch := range filterStr {
+	for i, ch := range gcpFilter {
 		if ch == '\'' || ch == '"' {
 			inQuotes = !inQuotes
 		}
@@ -467,7 +346,7 @@ func quoteStringValues(filterStr string) string {
 			continue
 		}
 
-		if isOperator(filterStr[i]) {
+		if isOperator(gcpFilter[i]) {
 			operator = true
 			sb.WriteRune(ch)
 		} else if operator {
@@ -487,7 +366,7 @@ func quoteStringValues(filterStr string) string {
 				sb.WriteRune('"')
 				sb.WriteRune(ch)
 				wrap = false
-			} else if i == len(filterStr)-1 {
+			} else if i == len(gcpFilter)-1 {
 				sb.WriteRune(ch)
 				sb.WriteRune('"')
 				wrap = false
@@ -501,22 +380,13 @@ func quoteStringValues(filterStr string) string {
 	return sb.String()
 }
 
-func parse(filterStr string) (*filter, error) {
-	filter, err := parser.ParseString("", quoteStringValues(filterStr))
-	if err != nil {
-		return nil, err
-	}
-	filter.compileExpression()
-	return filter, nil
-}
-
 // ((labels.color="red" OR parent.id:123.4) OR (name:HOWL AND labels.foo:*)) AND name:'bOWL'
-func extractInnermostExpression(filterStr string) (string, error) {
+func extractInnermostExpression(gcpFilter string) (string, error) {
 	var open, close []int
 	var list, quoted bool
-	for i, ch := range filterStr {
+	for i, ch := range gcpFilter {
 		if ch == '(' {
-			if i != 0 && (filterStr[i-1] == ':' || filterStr[i-1] == '=') {
+			if i != 0 && (gcpFilter[i-1] == ':' || gcpFilter[i-1] == '=') {
 				// Ignore lists: e.g. labels.volume:("small",'med*')
 				list = true
 			} else if !quoted {
@@ -545,57 +415,102 @@ func extractInnermostExpression(filterStr string) (string, error) {
 	innermostOpen := open[len(open)-1]
 	for _, innermostClose := range close {
 		if innermostClose > innermostOpen {
-			return filterStr[innermostOpen+1 : innermostClose], nil
+			return gcpFilter[innermostOpen+1 : innermostClose], nil
 		}
 	}
 	return "", errors.New("unmatching parentheses")
 }
 
-func filterProjectSubExpression(project *resourcemanagerpb.Project, subFilterStr string) (bool, error) {
-	filter, err := parse(subFilterStr)
-	if err != nil {
-		return false, err
-	}
-	keepProject, err := filter.filterProject(project)
-	if err != nil {
-		return false, err
-	}
-	return keepProject, nil
+type resourcer interface {
+	filterResource(t term) (bool, error)
 }
 
-func filterProject(project *resourcemanagerpb.Project, filterStr string) (bool, error) {
+type resource[C resourcer] struct {
+	gcpResource C
+	gcpFilter   string
+}
+
+func (r resource[C]) filterResource() (bool, error) {
 	var keepProject bool
-	subFilterStr, err := extractInnermostExpression(filterStr)
-	for ; subFilterStr != "" && err == nil; subFilterStr, err = extractInnermostExpression(filterStr) {
-		keepProject, err = filterProjectSubExpression(project, subFilterStr)
+	subGCPfilter, err := extractInnermostExpression(r.gcpFilter)
+	for ; subGCPfilter != "" && err == nil; subGCPfilter, err = extractInnermostExpression(r.gcpFilter) {
+		keepProject, err = r.filterResourceSubExpression(subGCPfilter)
 		if err != nil {
 			return false, nil
 		}
-		filterStr = strings.Replace(filterStr, "("+subFilterStr+")", fmt.Sprint(keepProject), 1)
+		r.gcpFilter = strings.Replace(r.gcpFilter, "("+subGCPfilter+")", fmt.Sprint(keepProject), 1)
 	}
 	if err != nil {
 		return false, err
 	}
-	keepProject, err = filterProjectSubExpression(project, filterStr)
+	keepProject, err = r.filterResourceSubExpression(r.gcpFilter)
 	if err != nil {
 		return false, nil
 	}
 	return keepProject, nil
 }
 
-// FilterProjects filters the given projects according to the filterStr filter
-// Notes:
-// 1. The grammar and syntax is specified at https://cloud.google.com/sdk/gcloud/reference/topic/filters
-func FilterProjects(projects []*resourcemanagerpb.Project, filterStr string) ([]*resourcemanagerpb.Project, error) {
-	filteredProjects := make([]*resourcemanagerpb.Project, 0, len(projects))
-	for _, project := range projects {
-		keepProject, err := filterProject(project, filterStr)
-		if err != nil {
-			return nil, err
+func (r resource[C]) filterResourceSubExpression(gcpFilter string) (bool, error) {
+	// Parse the string from subFilterStr into grammar
+	grammar, err := parser.ParseString("", quoteStringValues(gcpFilter))
+	if err != nil {
+		return false, err
+	}
+	grammar.compileExpression()
+
+	// Evaluate each term according to the given project
+	type termResult struct {
+		result          bool
+		logicalOperator string
+	}
+	termsResults := make([]termResult, 0, len(grammar.Terms))
+	for _, term := range grammar.Terms {
+		var result bool
+		var err error
+		if term.SubExpressionResult != nil {
+			result = bool(*term.SubExpressionResult)
+		} else {
+			result, err = r.gcpResource.filterResource(term)
+			if err != nil {
+				return false, err
+			}
+			if term.Negation {
+				result = !result
+			}
 		}
-		if keepProject {
-			filteredProjects = append(filteredProjects, project)
+		termsResults = append(termsResults, termResult{result: result, logicalOperator: term.LogicalOperator})
+	}
+
+	if len(termsResults) == 1 {
+		return termsResults[0].result, nil
+	}
+
+	// Do the logical operations left to right. Conjunction has lower precedence than OR
+	results := make([]termResult, 0, len(termsResults))
+	leftterm := termsResults[0]
+	for _, rightTerm := range termsResults[1:] {
+		if leftterm.logicalOperator == "OR" {
+			leftterm.result = leftterm.result || rightTerm.result
+			leftterm.logicalOperator = rightTerm.logicalOperator
+		} else if leftterm.logicalOperator == "AND" {
+			leftterm.result = leftterm.result && rightTerm.result
+			leftterm.logicalOperator = rightTerm.logicalOperator
+		} else if leftterm.logicalOperator == "" && (rightTerm.logicalOperator == "AND" || rightTerm.logicalOperator == "") {
+			leftterm.result = leftterm.result && rightTerm.result
+			leftterm.logicalOperator = rightTerm.logicalOperator
+		} else {
+			results = append(results, leftterm)
+			leftterm = rightTerm
 		}
 	}
-	return filteredProjects, nil
+	if len(results) == 0 {
+		return leftterm.result, nil
+	}
+
+	// Do any remaining conjuctions
+	result := results[0].result
+	for _, t := range results[1:] {
+		result = result && t.result
+	}
+	return result, nil
 }
