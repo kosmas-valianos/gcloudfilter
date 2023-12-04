@@ -451,7 +451,7 @@ func (r resource[C]) filter() (bool, error) {
 }
 
 func (r resource[C]) filterResourceSubExpression(gcpFilter string) (bool, error) {
-	// Parse the string from subFilterStr into grammar
+	// Parse the string from gcpFilter into grammar
 	grammar, err := parser.ParseString("", quoteStringValues(gcpFilter))
 	if err != nil {
 		return false, err
