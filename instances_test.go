@@ -49,10 +49,34 @@ func TestFilterInstances(t *testing.T) {
 			CanIpForward: toBoolPtr(false),
 			Scheduling: &computepb.Scheduling{
 				OnHostMaintenance: toStringPtr("MIGRATE"),
+				AutomaticRestart:  toBoolPtr(true),
 			},
 			DisplayDevice: &computepb.DisplayDevice{
 				EnableDisplay: toBoolPtr(false),
 			},
+			Zone: toStringPtr("https://www.googleapis.com/compute/v1/projects/appgate-dev/zones/europe-west3-c/instances/purple-gateway"),
+			Labels: map[string]string{
+				"color": "purple",
+				"size":  "big",
+			},
+			LastStartTimestamp: toStringPtr("2020-08-13T06:51:01.450-08:00"),
+		},
+		{
+			Name:         toStringPtr("blue-gateway"),
+			CanIpForward: toBoolPtr(false),
+			Scheduling: &computepb.Scheduling{
+				OnHostMaintenance: toStringPtr("MIGRATE"),
+				AutomaticRestart:  toBoolPtr(true),
+			},
+			DisplayDevice: &computepb.DisplayDevice{
+				EnableDisplay: toBoolPtr(false),
+			},
+			Zone: toStringPtr("https://www.googleapis.com/compute/v1/projects/appgate-dev/zones/europe-west3-a/instances/purple-gateway"),
+			Labels: map[string]string{
+				"color": "blue",
+				"size":  "small",
+			},
+			LastStartTimestamp: toStringPtr("2020-08-13T06:51:01.450-07:00"),
 		},
 	}
 	type args struct {
@@ -67,11 +91,27 @@ func TestFilterInstances(t *testing.T) {
 		{
 			name: "Complex 1",
 			args: args{
-				gcpFilter: `canIpForward:false AND displayDevice.enableDisplay:false scheduling.onHostMaintenance:MIGRATE`,
+				gcpFilter: `canIpForward:false AND displayDevice.enableDisplay:false scheduling.onHostMaintenance:MIGRATE zone ne ".*europe-west3-a.*" labels.color:purple lastStartTimestamp="2020-08-13T06:51:01.450-08:00"`,
 			},
 			wantInstances: instancesArray{
 				instances[0],
 			},
+		},
+		{
+			name: "Complex 2",
+			args: args{
+				gcpFilter: `NOT canIpForward:true AND displayDevice.enableDisplay:false scheduling.onHostMaintenance:MIGRATE (labels.color:blue OR labels.color:black) zone ~ .*europe-west3-a.*`,
+			},
+			wantInstances: instancesArray{
+				instances[1],
+			},
+		},
+		{
+			name: "Wrong key",
+			args: args{
+				gcpFilter: `canIPForward:false AND displayDevice.enableDisplay:false`,
+			},
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
