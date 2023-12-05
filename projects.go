@@ -74,9 +74,8 @@ func (g gcpProject) filterTerm(t term) (bool, error) {
 		return t.evaluate(g.project.GetEtag())
 	case "labels":
 		// e.g. labels.color:red, labels.color:*, -labels.color:red
-		labelKeyFilter := t.AttributeKey
 		for labelKey, labelValue := range g.project.GetLabels() {
-			if labelKey == labelKeyFilter {
+			if labelKey == t.AttributeKey {
 				// Existence check
 				if t.Value != nil && t.Value.Literal != nil && *t.Value.Literal == "*" {
 					return true, nil

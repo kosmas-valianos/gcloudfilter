@@ -32,8 +32,8 @@ func (f forwardingRulesArray) String() string {
 	}
 	var sb strings.Builder
 	sb.Grow(128)
-	for _, project := range f {
-		sb.WriteString(project.GetName() + " ")
+	for _, forwardingRule := range f {
+		sb.WriteString(forwardingRule.GetName() + " ")
 	}
 	return sb.String()[:sb.Len()-1]
 }
@@ -120,12 +120,12 @@ func TestFilterForwardingRules(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotforwardingRules, err := FilterForwardingRules(forwardingRules, tt.args.gcpFilter)
+			gotForwardingRules, err := FilterForwardingRules(forwardingRules, tt.args.gcpFilter)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FilterForwardingRules() error: \"%v\". wantErr: %v", err, tt.wantErr)
 				return
 			}
-			gotForwardingRulesArray := forwardingRulesArray(gotforwardingRules)
+			gotForwardingRulesArray := forwardingRulesArray(gotForwardingRules)
 			if !reflect.DeepEqual(gotForwardingRulesArray, tt.wantForwardingRules) {
 				t.Errorf("FilterForwardingRules(): \"%v\". want: \"%v\"", gotForwardingRulesArray, tt.wantForwardingRules)
 			}
