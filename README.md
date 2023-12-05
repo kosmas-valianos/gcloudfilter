@@ -1,5 +1,5 @@
 # gcloudfilter
-Define a lexer and parser to enable filtering of GCP projects locally instead of doing expensive Cloud Resource Manager API calls. That API has a **low quota** therefore it is very easy to end up getting rate limited in case your application has to perform many queries. A typical application would use `SearchProjects()` specifying the filter in the `Query` field of the `SearchProjectsRequest` parameter and do an API call to retrieve the projects that match the `Query`. Instead of spamming API calls with the imminent danger of getting rate limited you can now GET all projects _(`SearchProjects()` with empty `Query` or `ListProjects()` or whatever other way)_ at **every X interval** and use the `FilterProjects()` from this package to filter locally by running the query on the cached projects. In that way the API calls are drastically reduced to 1 per interval instead of 1 per query request. The grammar and syntax are specified in [gcloud topic filters](https://cloud.google.com/sdk/gcloud/reference/topic/filters)
+Define a lexer and parser to enable filtering of GCP projects, instances and forwarding rules **locally** instead of doing expensive API calls. Especially the API for the projects has a **low quota** therefore it is very easy to end up getting rate limited in case your application has to perform many queries. A typical application would specify the filter in the `Query`/`Filter` field of the `Request` object parameter and do an API call to retrieve the resources that match that `Query`/`Filter`. Instead of spamming API calls with the imminent danger of getting rate limited you can now request **all** the resources you want at **every X interval** and use the `FilterProjects()`/`FilterInstances()`/`FilterForwardingRules` from this package to filter locally by running the query on the cached resources. In that way the API calls are drastically reduced to a constant 1 per interval instead of 1 per query request! For example an application that has to make 10000 requests it would have to make 10000 API calls but not it will be only 1... The grammar and syntax are specified in [gcloud topic filters](https://cloud.google.com/sdk/gcloud/reference/topic/filters)
 
 ## Installation
 ```
@@ -7,7 +7,7 @@ go get github.com/kosmas-valianos/gcloudfilter
 ```
 
 ## Usage/Example
-The following example downloads and caches all the projects using `SearchProjects()` with 60 seconds interval. The user can run endless projects' queries using the standard input without worrying about any quota limits as the filtering is happening locally using the `FilterProjects` on the cached projects.
+The following example downloads and caches all the projects using `SearchProjects()` with 60 seconds update interval. The user can run endless projects' queries using the standard input without worrying about any quota limits as the filtering is happening locally using the `FilterProjects()` on the cached projects.
 
 ```golang
 type projectsGCP struct {
@@ -101,12 +101,13 @@ func main() {
 ```
 
 ```
-/gcloudfilter_example 
-Projects cached: logic-30-603 appgate-test appgate-dev product-team-222016 
+# ./gcloudfilter_example 
+Projects cached: corelogic-30-603 appgate-test appgate-dev product-team-222016 
 Enter GCP project filter:
 id=("appgate-dev" "foo") AND (-labels.boo:* OR labels.envy:*)
 Filter query: id=("appgate-dev" "foo") AND (-labels.boo:* OR labels.envy:*)
 Projects after filtering: appgate-dev 
 Enter GCP project filter:
+
 ```
 
