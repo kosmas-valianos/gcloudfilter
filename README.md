@@ -7,7 +7,9 @@ go get github.com/kosmas-valianos/gcloudfilter
 ```
 
 ## Usage/Example
-The following example downloads and caches all the projects using `SearchProjects()` with 60 seconds update interval. The user can run endless projects' queries using the standard input without worrying about any quota limits as the filtering is happening locally using the `FilterProjects()` on the cached projects.
+A lot of raw queries can be seen in the unit tests.
+
+The following application downloads and caches all the projects using `SearchProjects()` with 60 seconds update interval. The user can run endless projects' queries using the standard input without worrying about any quota limits as the filtering is happening locally using the `FilterProjects()` on the cached projects.
 
 ```golang
 type projectsGCP struct {
