@@ -1,6 +1,6 @@
 module github.com/kosmas-valianos/gcloudfilter
 
-go 1.22
+go 1.22.4
 
 require (
 	cloud.google.com/go/compute v1.27.0
