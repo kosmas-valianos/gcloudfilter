@@ -1,6 +1,6 @@
 module github.com/kosmas-valianos/gcloudfilter
 
-go 1.21
+go 1.22
 
 require (
 	cloud.google.com/go/compute v1.27.0
@@ -12,7 +12,6 @@ require (
 require (
 	cloud.google.com/go/iam v1.1.8 // indirect
 	cloud.google.com/go/longrunning v0.5.7 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/sys v0.21.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
