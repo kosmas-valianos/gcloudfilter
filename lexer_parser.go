@@ -32,7 +32,7 @@ import (
 
 var parser = participle.MustBuild[grammar](
 	participle.Lexer(lexer.MustSimple([]lexer.SimpleRule{
-		{Name: "Ident", Pattern: `-?[a-zA-Z\*]+|\*`},
+		{Name: "Ident", Pattern: `-?[a-zA-Z_\*-]+|\*`},
 		{Name: "List", Pattern: `\([^\(^\)]*\)`},
 		{Name: "QuotedLiteral", Pattern: `"[^"]*"|'[^']*'`},
 		{Name: "FloatingPointNumericConstant", Pattern: `[-+]?(\d+\.\d*|\.\d+)([eE][-+]?\d+)?`},
@@ -322,14 +322,77 @@ func wildcardToRegexp(pattern string) string {
 	return "^" + result.String() + "$"
 }
 
-func isOperator(ch byte) bool {
-	operators := [...]byte{':', '=', '<', '>', '~', '('}
+var operators = [...]byte{':', '=', '<', '>', '~', '('}
+
+func isOperator(ch byte, operators []byte) bool {
 	for i := range operators {
 		if operators[i] == ch {
 			return true
 		}
 	}
 	return false
+}
+
+func wrapValuesWithParentheses(gcpFilter string) string {
+	var sb strings.Builder
+	sb.Grow(len(gcpFilter) + 64)
+	var quoted, operator, wrap bool
+	for i, ch := range gcpFilter {
+		if isOperator(gcpFilter[i], operators[:len(operators)-1]) {
+			operator = true
+			sb.WriteRune(ch)
+		} else if ch == '"' || ch == '\'' || ch == '(' {
+			// Mark to not do anything when quoted or parenthesized already
+			if quoted {
+				// End of quote
+				quoted = false
+				operator = false
+			} else {
+				// Start of quote
+				quoted = true
+			}
+			sb.WriteRune(ch)
+		} else if operator {
+			// Inside AttributeValue
+			if ch == '*' {
+				// No parentheses wrap in existense checks e.g. -labels.foo:*
+				sb.WriteRune(ch)
+				operator = false
+			} else if !quoted {
+				if !wrap {
+					// Open parentheses
+					sb.WriteRune('(')
+					sb.WriteRune(ch)
+					// Close parentheses. End of terms
+					if i == len(gcpFilter)-1 {
+						sb.WriteRune(')')
+					}
+					wrap = true
+				} else if ch == ' ' {
+					// Close parentheses. More terms follow
+					sb.WriteRune(')')
+					sb.WriteRune(ch)
+					wrap = false
+					operator = false
+				} else if i == len(gcpFilter)-1 {
+					// Close parentheses. End of terms
+					sb.WriteRune(ch)
+					sb.WriteRune(')')
+					wrap = false
+					operator = false
+				} else {
+					sb.WriteRune(ch)
+				}
+			} else {
+				// Do to not do anything when quoted or parenthesized already
+				sb.WriteRune(ch)
+			}
+		} else {
+			// Non AttributeValue characters. Keys, logical operators etc.
+			sb.WriteRune(ch)
+		}
+	}
+	return sb.String()
 }
 
 func quoteStringValues(gcpFilter string) string {
@@ -346,7 +409,7 @@ func quoteStringValues(gcpFilter string) string {
 			continue
 		}
 
-		if isOperator(gcpFilter[i]) {
+		if isOperator(gcpFilter[i], operators[:]) {
 			operator = true
 			sb.WriteRune(ch)
 		} else if operator {
@@ -452,7 +515,7 @@ func (r resource[C]) filter() (bool, error) {
 
 func (r resource[C]) filterResourceSubExpression(gcpFilter string) (bool, error) {
 	// Parse the string from gcpFilter into grammar
-	grammar, err := parser.ParseString("", quoteStringValues(gcpFilter))
+	grammar, err := parser.ParseString("", wrapValuesWithParentheses(quoteStringValues(gcpFilter)))
 	if err != nil {
 		return false, err
 	}

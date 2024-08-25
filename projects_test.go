@@ -52,10 +52,12 @@ func TestFilterProjects(t *testing.T) {
 			CreateTime:  timestamppb.Now(),
 			Etag:        `W/"50f1fa462f4ec213"`,
 			Labels: map[string]string{
-				"color":  "red",
-				"volume": "big",
-				"cpu":    "Intel",
-				"size":   "100",
+				"color":    "red",
+				"volume":   "big",
+				"cpu":      "Intel",
+				"size":     "100",
+				"d-x_c":    "-100",
+				"ad_group": "cets-gg-sso-isc-gcp-pre-arb-devsecops",
 			},
 		},
 		{
@@ -71,6 +73,20 @@ func TestFilterProjects(t *testing.T) {
 				"volume": "medium",
 				"cpu":    "Intel Skylake",
 				"size":   "-2.5E+10",
+			},
+		},
+		{
+			Name:        "projects/82699087621",
+			Parent:      "organizations/448593862442",
+			ProjectId:   "clgx-gateway-app-prf-47f4",
+			State:       1,
+			DisplayName: "clgx- Foo",
+			CreateTime:  timestamppb.Now(),
+			Etag:        `W/"50f1fa462f4ec213"`,
+			Labels: map[string]string{
+				"cop_ad_group":     "corp-hh-insurance_uv_gr-commercialurban-databaseops",
+				"gcp_project_name": "clgx-gateway-app-dev",
+				"ad_group":         "certs-hh-sso-isb-gcp-binportal-pgres_dot_dev-devsecops",
 			},
 		},
 	}
@@ -105,17 +121,18 @@ func TestFilterProjects(t *testing.T) {
 		{
 			name: "Timestamp, State",
 			args: args{
-				gcpFilter: "createTime <= " + fmt.Sprintf("\"%v\"", time.Now().UTC().Format(time.RFC3339)) + " AND state>=1 AND state=ACTIVE",
+				gcpFilter: "createTime <= " + fmt.Sprintf("\"%v\"", time.Now().UTC().Format(time.RFC3339)) + " AND state>=1 AND state=ACTIVE state!=5",
 			},
 			wantProjects: projectsArray{
 				projects[0],
 				projects[1],
+				projects[2],
 			},
 		},
 		{
 			name: "Conjuction having lower precedence than OR - 0",
 			args: args{
-				gcpFilter: `labels.volume:medium labels.color:red OR labels.color:blue state=1 labels.cpu:* OR -labels.foo:*`,
+				gcpFilter: `labels.volume:medium labels.color:red OR labels.color:blue state=(1,2,3) labels.cpu:* OR -labels.foo:*`,
 			},
 			wantProjects: projectsArray{
 				projects[1],
@@ -138,6 +155,24 @@ func TestFilterProjects(t *testing.T) {
 			},
 			wantProjects: projectsArray{
 				projects[0],
+			},
+		},
+		{
+			name: "hyphen and underscore in labels - 0",
+			args: args{
+				gcpFilter: `name:appgate* AND labels.ad_group:cets-gg-sso-isc-gcp-pre-arb-devsecops -labels.abcd:* labels.d-x_c:-100`,
+			},
+			wantProjects: projectsArray{
+				projects[0],
+			},
+		},
+		{
+			name: "hyphen and underscore in labels - 1",
+			args: args{
+				gcpFilter: `name:clgx-* AND labels.cop_ad_group:corp-hh-insurance_uv_gr-commercialurban-databaseops labels.gcp_project_name:(clgx-gateway-app-de* "foo") labels.ad_group=certs-hh-sso-isb-gcp-binportal-pgres_dot_dev-devsecops`,
+			},
+			wantProjects: projectsArray{
+				projects[2],
 			},
 		},
 		{
