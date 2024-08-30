@@ -56,12 +56,23 @@ func (g gcpProject) filterTerm(t term) (bool, error) {
 		// e.g. id:appgate-dev
 		return t.evaluate(g.project.GetProjectId())
 	case "state", "lifecyclestate":
-		// e.g. state:ACTIVE
-		if t.Value.Literal != nil {
-			return t.evaluate(g.project.GetState().String())
+		if t.ValuesList != nil {
+			if t.ValuesList.Values[0].Literal != nil {
+				// e.g. state:ACTIVE
+				return t.evaluate(g.project.GetState().String())
+			} else {
+				// e.g. state:1
+				return t.evaluate(fmt.Sprint(g.project.GetState().Number()))
+			}
+		} else {
+			if t.Value.Literal != nil {
+				// e.g. state:ACTIVE
+				return t.evaluate(g.project.GetState().String())
+			} else {
+				// e.g. state:1
+				return t.evaluate(fmt.Sprint(g.project.GetState().Number()))
+			}
 		}
-		// e.g. state:1
-		return t.evaluate(fmt.Sprint(g.project.GetState().Number()))
 	case "displayname", "name":
 		return t.evaluate(g.project.GetDisplayName())
 	case "createtime":
