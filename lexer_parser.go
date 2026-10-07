@@ -32,7 +32,7 @@ import (
 
 var parser = participle.MustBuild[grammar](
 	participle.Lexer(lexer.MustSimple([]lexer.SimpleRule{
-		{Name: "Ident", Pattern: `-?[a-zA-Z_\*-]+|\*`},
+		{Name: "Ident", Pattern: `-?[a-zA-Z_\*][a-zA-Z0-9_\*-]*|\*`},
 		{Name: "List", Pattern: `\([^\(^\)]*\)`},
 		{Name: "QuotedLiteral", Pattern: `"[^"]*"|'[^']*'`},
 		{Name: "FloatingPointNumericConstant", Pattern: `[-+]?(\d+\.\d*|\.\d+)([eE][-+]?\d+)?`},
