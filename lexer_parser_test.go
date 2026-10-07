@@ -59,6 +59,13 @@ func TestParse(t *testing.T) {
 			want: `{"terms":[{"negation":true,"key":"labels","attribute-key":"volume","operator":":","value":{"literal":"*"},"logical-operator":"AND"},{"negation":true,"key":"labels","attribute-key":"c-ol_or","operator":":","value":{"literal":"*"}}]}`,
 		},
 		{
+			name: "Digits in Ident",
+			args: args{
+				gcpFilter: `labels.sdp_h1234_443:sdp_436598432325`,
+			},
+			want: `{"terms":[{"key":"labels","attribute-key":"sdp_h1234_443","operator":":","value":{"literal":"^sdp_436598432325$"}}]}`,
+		},
+		{
 			name: "Parse error",
 			args: args{
 				gcpFilter: `NOT labels.volume:* AND labels.c-ol_or/*`,
